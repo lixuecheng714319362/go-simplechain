@@ -12,12 +12,10 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
-	"runtime"
 	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/Beyond-simplechain/foundation/asio"
 	"github.com/simplechain-org/go-simplechain/common"
 	"github.com/simplechain-org/go-simplechain/core/types"
 	"github.com/simplechain-org/go-simplechain/crypto"
@@ -58,8 +56,6 @@ func initNonce(seed uint64, count int) []uint64 {
 	}
 	return ret
 }
-
-var parallel = asio.NewParallel(1000, runtime.NumCPU())
 
 var (
 	chainId   *uint64
@@ -127,7 +123,6 @@ func main() {
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(interrupt)
 	<-interrupt
-	parallel.Stop()
 	for _, cancel := range cancels {
 		cancel()
 	}

@@ -20,8 +20,10 @@ package core
 import (
 	"errors"
 	"fmt"
+	"github.com/Jeffail/tunny"
 	"math"
 	"math/big"
+	"runtime"
 	"sync"
 	"time"
 
@@ -226,9 +228,9 @@ type TxPool struct {
 	blockTxCheck *BlockTxChecker
 	validatorMu  sync.RWMutex
 
-	//parallel *asio.Parallel
-	syncFeed event.Feed
-	wg       sync.WaitGroup // for shutdown sync
+	paraValidator *tunny.Pool
+	syncFeed      event.Feed
+	wg            sync.WaitGroup // for shutdown sync
 }
 
 // NewTxPool creates a new transaction pool to gather, sort and filter inbound
@@ -276,6 +278,10 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 	}
 	// Subscribe events from blockchain
 	pool.chainHeadSub = pool.chain.SubscribeChainHeadEvent(pool.chainHeadCh)
+
+	pool.paraValidator = tunny.NewFunc(runtime.NumCPU(), func(i interface{}) interface{} {
+		return pool.validateAndSubmit(i.(*types.Transaction))
+	})
 
 	// Start the event loop and return
 	pool.wg.Add(1)
@@ -719,31 +725,30 @@ func (pool *TxPool) add(tx *types.Transaction, local, sync bool) error {
 	tx.SetImportTime(time.Now().UnixNano())
 	tx.SetLocal(local)
 
-	submit := func() error {
-		// If the transaction fails basic validation, discard it
-		if err := pool.validateTx(tx); err != nil {
-			log.Trace("Discarding invalid transaction", "hash", hash, "err", err)
-			//log.Error("[debug] Discarding invalid transaction", "hash", hash, "err", err)
-			//invalidTxCounter.Inc(1)
-			return err
-		}
-
-		pool.queue.Add(tx)
-		pool.all.Add(tx)
-		pool.txChecker.InsertCache(tx)
-		pool.journalTx(tx)
-
-		//go pool.txFeed.Send(NewTxsEvent{types.Transactions{tx}})
-		go pool.syncFeed.Send(NewTxsEvent{types.Transactions{tx}}) //TODO-U: send sync signal
-		return nil
-	}
-
 	if sync {
-		return submit()
+		return pool.validateAndSubmit(tx)
+	}
+	// parallel validate and submit
+	go pool.paraValidator.Process(tx)
+	return nil
+}
+
+func (pool *TxPool) validateAndSubmit(tx *types.Transaction) error {
+	// If the transaction fails basic validation, discard it
+	if err := pool.validateTx(tx); err != nil {
+		log.Trace("Discarding invalid transaction", "hash", tx.Hash(), "err", err)
+		//log.Error("[debug] Discarding invalid transaction", "hash", hash, "err", err)
+		//invalidTxCounter.Inc(1)
+		return err
 	}
 
-	SenderParallel.Put(submit, nil)
-	//pool.parallel.Put(submit, nil)
+	pool.queue.Add(tx)
+	pool.all.Add(tx)
+	pool.txChecker.InsertCache(tx)
+	pool.journalTx(tx)
+
+	//go pool.txFeed.Send(NewTxsEvent{types.Transactions{tx}})
+	go pool.syncFeed.Send(NewTxsEvent{types.Transactions{tx}}) //TODO-U: send sync signal
 	return nil
 }
 

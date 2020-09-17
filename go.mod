@@ -12,6 +12,7 @@ require (
 	github.com/Azure/azure-storage-blob-go v0.7.0
 	github.com/Azure/go-autorest/autorest/adal v0.8.0 // indirect
 	github.com/Beyond-simplechain/foundation v1.0.0
+	github.com/Jeffail/tunny v0.0.0-20190930221602-f13eb662a36a
 	github.com/StackExchange/wmi v0.0.0-20180116203802-5d049714c4a6 // indirect
 	github.com/VictoriaMetrics/fastcache v1.5.3
 	github.com/aristanetworks/goarista v0.0.0-20190924011532-60b7b74727fd

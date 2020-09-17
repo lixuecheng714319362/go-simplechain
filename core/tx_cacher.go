@@ -17,7 +17,6 @@
 package core
 
 import (
-	"github.com/Beyond-simplechain/foundation/asio"
 	"runtime"
 
 	"github.com/simplechain-org/go-simplechain/core/types"
@@ -25,8 +24,6 @@ import (
 
 // senderCacher is a concurrent transaction sender recoverer and cacher.
 var senderCacher = newTxSenderCacher(runtime.NumCPU())
-
-var SenderParallel = asio.NewParallel(10000, runtime.NumCPU())
 
 // txSenderCacherRequest is a request for recovering transaction senders with a
 // specific signature scheme and caching it into the transactions themselves.

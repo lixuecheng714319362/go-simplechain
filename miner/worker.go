@@ -82,8 +82,8 @@ const (
 	staleThreshold = 7
 
 	// for subchain-mode txpool
-	limitMaxBlockTxs   = 15000
-	limitMinBlockTxs   = 1
+	limitMaxBlockTxs = 15000
+	limitMinBlockTxs = 1
 )
 
 var DefaultMaxBlockTxs uint64 = 1000
@@ -417,8 +417,13 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 
 		case head := <-w.chainHeadCh:
 			if bft, ok := w.engine.(consensus.Byzantine); ok {
+				logFn := log.Warn
 				if err := bft.NewChainHead(head.Block); err != nil {
-					log.Warn("new istanbul chain head failed", "error", err.Error())
+					switch err {
+					case pbft.ErrStoppedEngine:
+						logFn = log.Trace
+					}
+					logFn("new istanbul chain head failed", "error", err.Error())
 				}
 			}
 			clearPending(head.Block.NumberU64())
