@@ -18,6 +18,8 @@ package types
 
 import (
 	"bytes"
+	"github.com/exascience/pargo/parallel"
+	"runtime"
 	"sort"
 
 	"github.com/simplechain-org/go-simplechain/common"
@@ -45,6 +47,29 @@ func DeriveListSha(list DerivableList) (h common.Hash) {
 		rlp.Encode(keybuf, uint(i))
 		ordered[i] = BytesPair{keybuf.Bytes(), list.GetRlp(i)}
 	}
+
+	sort.Slice(ordered, func(i, j int) bool {
+		return bytes.Compare(ordered[i].Key, ordered[j].Key) < 0
+	})
+
+	hw := sha3.NewLegacyKeccak256()
+	rlp.Encode(hw, ordered)
+	hw.Sum(h[:0])
+	return h
+}
+
+func DeriveListShaParallel(list DerivableList) (h common.Hash) {
+	l := list.Len()
+
+	ordered := make([]BytesPair, l)
+
+	parallel.Range(0, l, runtime.NumCPU(), func(low, high int) {
+		for i := low; i < high; i++ {
+			keybuf := new(bytes.Buffer)
+			rlp.Encode(keybuf, uint(i))
+			ordered[i] = BytesPair{keybuf.Bytes(), list.GetRlp(i)}
+		}
+	})
 
 	sort.Slice(ordered, func(i, j int) bool {
 		return bytes.Compare(ordered[i].Key, ordered[j].Key) < 0

@@ -17,5 +17,4 @@
 
 package types
 
-var DeriveSha = DeriveListSha
-
+var DeriveSha = DeriveListShaParallel
