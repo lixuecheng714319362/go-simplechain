@@ -13,7 +13,7 @@
   "nonce": "0x0",
   "alloc": {
     "E60D800A6204cC85F90D18b278Bf1C6b74bbe0a8": {
-      "balance": "0x21e19e0c9bab2400000"
+      "balance": "0x8821e19e0c9bab2400000"
     },
     "b45fd7407cC1d549A0B4597FA9d07014c399Bf7B": {
       "balance": "0x21e19e0c9bab2400000"
@@ -22,6 +22,18 @@
       "balance": "0x21e19e0c9bab2400000"
     },
     "bD46DDf87a157b0f3667d8D9041AefE8ede4Ddc4": {
+      "balance": "0x21e19e0c9bab2400000"
+    },
+    "C9B8145A2934676Ae22f1157d5BE03ecB375C4cB": {
+      "balance": "0x21e19e0c9bab2400000"
+    },
+    "D8C0D1a47a0b17e921228BE47614008a33b85Ad2": {
+      "balance": "0x21e19e0c9bab2400000"
+    },
+    "c02cD990aA7bD59A25774A9B31ae9A580667ed81": {
+      "balance": "0x21e19e0c9bab2400000"
+    },
+    "57F8a6Ddec37Ea4d99f2bE3E3b8C7959c73C1505": {
       "balance": "0x21e19e0c9bab2400000"
     }
   },

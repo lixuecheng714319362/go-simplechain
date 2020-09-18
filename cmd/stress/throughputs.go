@@ -8,7 +8,6 @@ import (
 	"flag"
 	"log"
 	"math/big"
-	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
@@ -40,6 +39,9 @@ var senderKeys = []string{
 	"6ce1ddaaa7cd15232fd17838ab65b7beb8b6ad8e43be7d61548535b40a2a89b0",
 }
 
+//var receivers []common.Address
+//var senders []*ecdsa.PrivateKey
+
 func init() {
 	log.SetFlags(log.Lshortfile | log.LstdFlags)
 }
@@ -61,6 +63,7 @@ var (
 	chainId   *uint64
 	tps       *int
 	toAddress common.Address
+	random    *bool
 )
 
 func main() {
@@ -75,6 +78,7 @@ func main() {
 	to := flag.String("to", "", "tx reception")
 
 	seed := flag.Uint64("seed", 1, "hash seed")
+	random = flag.Bool("rand", false, "random signer and receiver tx")
 
 	flag.Parse()
 
@@ -115,10 +119,6 @@ func main() {
 		}
 	}
 
-	go func() {
-		http.ListenAndServe("127.0.0.1:6789", nil)
-	}()
-
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(interrupt)
@@ -155,9 +155,31 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 		blockLimit = getBlockLimit(ctx, client, 0)
 		meterCount = 0
 		i          int
+		receivers  []common.Address
+		senders    []*ecdsa.PrivateKey
 	)
 
 	copy(data[:], fromAddress.Bytes())
+
+	if *random {
+		receivers = make([]common.Address, *tps)
+		senders = make([]*ecdsa.PrivateKey, *tps)
+		for i := 0; i < *tps; i++ {
+			pks, _ := crypto.GenerateKey()
+			pkr, _ := crypto.GenerateKey()
+			senders[i] = pks
+			receivers[i] = crypto.PubkeyToAddress(pkr.PublicKey)
+		}
+
+		signer := types.NewEIP155Signer(new(big.Int).SetUint64(*chainId))
+		sender, _ := crypto.HexToECDSA(senderKeys[0])
+		blockLimit := getBlockLimit(ctx, client, 0)
+		nonce := nonces[0]
+
+		for i, s := range senders {
+			sendTransaction(ctx, signer, sender, nonce+uint64(i), blockLimit, crypto.PubkeyToAddress(s.PublicKey), big1, uint64(21000+(20+64)*68), gasPrice, nil, client)
+		}
+	}
 
 	start := time.Now()
 	timer := time.NewTimer(0)
@@ -172,6 +194,8 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 	defer tpsTicker.Stop()
 
 	noncesLen := len(nonces)
+	sendersLen := len(senders)
+
 	for {
 		if i >= noncesLen {
 			break
@@ -199,6 +223,12 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 				//	sendTransaction(ctx, signer, privateKey, nonce, blockLimit, toAddress, big1, gasLimit, gasPrice, data[:], client)
 				//	return nil
 				//})
+				if *random {
+					turn := j % sendersLen
+					privateKey = senders[turn]
+					toAddress = receivers[turn]
+				}
+
 				sendTransaction(ctx, signer, privateKey, nonce, blockLimit, toAddress, big1, gasLimit, gasPrice, data[:], client)
 
 				i++
