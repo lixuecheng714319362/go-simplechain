@@ -19,6 +19,7 @@ package types
 import (
 	"bytes"
 	"crypto/rand"
+	"github.com/simplechain-org/go-simplechain/crypto"
 	"math/big"
 	"testing"
 
@@ -162,7 +163,8 @@ func genPayload(n int) []byte {
 func getTransactions(count int, payload ...byte) Transactions {
 	txs := make(Transactions, 0, count)
 	for i := 0; i < count; i++ {
-		key, addr := defaultTestKey()
+		key, _ := crypto.GenerateKey()
+		addr := crypto.PubkeyToAddress(key.PublicKey)
 		signer := NewEIP155Signer(big.NewInt(18))
 		tx, _ := SignTx(NewTransaction(uint64(i), addr, big.NewInt(int64(i)), uint64(i), big.NewInt(int64(i)), payload), signer, key)
 		txs = append(txs, tx)

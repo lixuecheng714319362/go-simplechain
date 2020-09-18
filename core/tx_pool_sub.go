@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Jeffail/tunny"
+	mapset "github.com/deckarep/golang-set"
 	"math"
 	"math/big"
 	"runtime"
@@ -144,7 +145,6 @@ type TxPoolConfig struct {
 }
 
 // DefaultTxPoolConfig contains the default configurations for the transaction
-// pool.
 var DefaultTxPoolConfig = TxPoolConfig{
 	Journal:   "transactions.rlp",
 	Rejournal: time.Hour,
@@ -214,22 +214,24 @@ type TxPool struct {
 
 	currentState *state.StateDB
 
-	txFeed       event.Feed
+	txFeed event.Feed
+	//syncFeed     event.Feed
 	scope        event.SubscriptionScope
 	chainHeadCh  chan ChainHeadEvent
 	chainHeadSub event.Subscription
 	signer       types.Signer
 	mu           sync.RWMutex
 
-	all   *txLookup // All transactions to allow lookups
-	queue *txQueue
-	//invalid      *txLookup
+	all     *txLookup // All transactions to allow lookups
+	queue   *txQueue
+	invalid mapset.Set //TODO: expired transactions
+
 	txChecker    *TxChecker
 	blockTxCheck *BlockTxChecker
+	journal      *txJournal
 	validatorMu  sync.RWMutex
 
 	paraValidator *tunny.Pool
-	syncFeed      event.Feed
 	wg            sync.WaitGroup // for shutdown sync
 }
 
@@ -241,20 +243,17 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 
 	// Create the transaction pool with its initial settings
 	pool := &TxPool{
-		config:      config,
-		chainconfig: chainconfig,
-		chain:       chain,
-		signer:      types.NewEIP155Signer(chainconfig.ChainID),
-		//pending:     make(map[common.Address]*txList),
-		queue: newTxQueue(),
-		//invalid:      newTxLookup(),
+		config:       config,
+		chainconfig:  chainconfig,
+		chain:        chain,
+		signer:       types.NewEIP155Signer(chainconfig.ChainID),
+		queue:        newTxQueue(),
+		invalid:      mapset.NewSet(),
 		txChecker:    NewTxChecker(),
 		blockTxCheck: NewBlockTxChecker(chain),
-		//beats:           make(map[common.Address]time.Time),
-		all:         newTxLookup(),
-		chainHeadCh: make(chan ChainHeadEvent, chainHeadChanSize),
-		//parallel:    asio.NewParallel(parallelTasks, parallelThreads),
-		gasPrice: new(big.Int).SetUint64(config.PriceLimit),
+		all:          newTxLookup(),
+		chainHeadCh:  make(chan ChainHeadEvent, chainHeadChanSize),
+		gasPrice:     new(big.Int).SetUint64(config.PriceLimit),
 	}
 	//pool.locals = newAccountSet(pool.signer)
 	//for _, addr := range config.Locals {
@@ -465,22 +464,18 @@ func (pool *TxPool) reset(oldHead *types.Header, newBlock *types.Block, newHead 
 	// have been invalidated because of another transaction (e.g.
 	// higher gas price)
 	//pool.demoteUnexecutables()
-	//log.Error("[debug] blockTxCheck.UpdateCache", "order", 3)
 	pool.blockTxCheck.UpdateCache(false)
-	//log.Error("[debug] txpool.RemoveBlockKnowTxs", "order", 4)
 	if newBlock != nil {
 		pool.RemoveBlockKnownTxs(newBlock)
 		pool.txChecker.DeleteCaches(newBlock.Transactions())
 	}
 
 	// Update all accounts to the latest known pending nonce
-	//for _, tx := range pool.Pending() {
-	//txs := list.Flatten() // Heavy but will be cached and is needed by the miner anyway
-	//pool.pendingState.SetNonce(addr, txs[len(txs)-1].Nonce()+1)
-	//fmt.Println("poatest------txpool::reset:tx", tx)
-	//fmt.Println("poatest------txpool::reset:txChecker", pool.txChecker)
-	//pool.txChecker.InsertCache(tx)
-	//}
+	/*for _, tx := range pool.Pending() {
+		txs := list.Flatten() // Heavy but will be cached and is needed by the miner anyway
+		pool.pendingState.SetNonce(addr, txs[len(txs)-1].Nonce()+1)
+		pool.txChecker.InsertCache(tx)
+	}*/
 	// Check the queue and move transactions over to the pending if possible
 	// or remove those that have become invalid
 	//pool.promoteExecutables(nil)
@@ -508,9 +503,9 @@ func (pool *TxPool) SubscribeNewTxsEvent(ch chan<- NewTxsEvent) event.Subscripti
 	return pool.scope.Track(pool.txFeed.Subscribe(ch))
 }
 
-func (pool *TxPool) SubscribeSyncTxsEvent(ch chan<- NewTxsEvent) event.Subscription {
-	return pool.scope.Track(pool.syncFeed.Subscribe(ch))
-}
+//func (pool *TxPool) SubscribeSyncTxsEvent(ch chan<- NewTxsEvent) event.Subscription {
+//	return pool.scope.Track(pool.syncFeed.Subscribe(ch))
+//}
 
 // GasPrice returns the current gas price enforced by the transaction pool.
 func (pool *TxPool) GasPrice() *big.Int {
@@ -547,16 +542,13 @@ func (pool *TxPool) Nonce(addr common.Address) uint64 {
 func (pool *TxPool) Stats() (int, int) {
 	pool.mu.RLock()
 	defer pool.mu.RUnlock()
-
 	return pool.stats()
 }
 
 // stats retrieves the current pool stats, namely the number of pending and the
 // number of queued (non-executable) transactions.
 func (pool *TxPool) stats() (int, int) {
-	pending := pool.queue.Size()
-	//invalid := pool.invalid.Count()
-	return pending, 0
+	return pool.queue.Size(), pool.invalid.Cardinality()
 }
 
 // Content retrieves the data content of the transaction pool, returning all the
@@ -652,9 +644,6 @@ func (pool *TxPool) Pending() (map[common.Address]types.Transactions, error) {
 }
 
 func (pool *TxPool) preCheck(tx *types.Transaction) error {
-	if tx.Size() > 32*1024 {
-		return ErrOversizedData
-	}
 	// Transactions can't be negative. This may never happen using RLP decoded
 	// transactions but may occur if you create a transaction using the RPC.
 	if tx.Value().Sign() < 0 {
@@ -663,7 +652,6 @@ func (pool *TxPool) preCheck(tx *types.Transaction) error {
 	if pool.gasPrice.Cmp(tx.GasPrice()) > 0 {
 		return ErrUnderpriced
 	}
-	//log.Warn("tx from", from.String())
 	// Ensure the transaction is not duplicate
 	if !pool.txChecker.OK(tx, false) || !pool.blockTxCheck.OK(tx, false) {
 		return ErrDuplicated
@@ -684,6 +672,9 @@ func (pool *TxPool) preCheck(tx *types.Transaction) error {
 // rules and adheres to some heuristic limits of the local node (price and size).
 func (pool *TxPool) validateTx(tx *types.Transaction /*, local bool*/) error {
 	// Heuristic limit, reject transactions over 32KB to prevent DOS attacks
+	if tx.Size() > 32*1024 {
+		return ErrOversizedData
+	}
 	_, err := types.Sender(pool.signer, tx)
 	if err != nil {
 		return ErrInvalidSender
@@ -691,14 +682,6 @@ func (pool *TxPool) validateTx(tx *types.Transaction /*, local bool*/) error {
 	if !pool.txChecker.OK(tx, true) {
 		return ErrDuplicated
 	}
-	// Transactor should have enough funds to cover the costs
-	// cost == V + GP * GL
-	// FIXME: important: statedb should support concurrent-RW，don't lock the pool
-	//pool.validatorMu.Lock()
-	//defer pool.validatorMu.Unlock()
-	//if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
-	//	return ErrInsufficientFunds
-	//}
 	return nil
 }
 
@@ -742,23 +725,30 @@ func (pool *TxPool) validateAndSubmit(tx *types.Transaction) error {
 		return err
 	}
 
+	// submit the transaction
 	pool.queue.Add(tx)
 	pool.all.Add(tx)
 	pool.txChecker.InsertCache(tx)
 	pool.journalTx(tx)
 
-	//go pool.txFeed.Send(NewTxsEvent{types.Transactions{tx}})
-	go pool.syncFeed.Send(NewTxsEvent{types.Transactions{tx}}) //TODO-U: send sync signal
+	go pool.txFeed.Send(NewTxsEvent{types.Transactions{tx}})
 	return nil
+}
+
+func (pool *TxPool) clear() {
+	pool.queue.Clear()
+	pool.all.Clear()
+	pool.txChecker = NewTxChecker()
+	pool.blockTxCheck = NewBlockTxChecker(pool.chain)
 }
 
 // journalTx adds the specified transaction to the local disk journal if it is
 // deemed to have been sent from a local account.
 func (pool *TxPool) journalTx(tx *types.Transaction) {
-	//Only journal if it's enabled and the transaction is local
-	//if pool.journal == nil {
-	//	return
-	//}
+	//TODO Only journal if it's enabled and the transaction is local
+	if pool.journal == nil {
+		return
+	}
 	//if err := pool.journal.insert(tx); err != nil {
 	//	log.Warn("Failed to journal local transaction", "err", err)
 	//}
@@ -862,6 +852,7 @@ func (pool *TxPool) RemoveInvalidTxs(invalid map[common.Hash]struct{}) {
 		if tx := pool.all.Get(hash); tx != nil {
 			pool.all.Remove(hash)
 			pool.queue.Remove(tx)
+			//pool.invalid.Add(hash)
 		}
 
 		pool.txChecker.DeleteCache(hash)

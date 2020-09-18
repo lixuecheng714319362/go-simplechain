@@ -116,10 +116,6 @@ func (p *testTxPool) SyncLimit(int) types.Transactions {
 	return nil
 }
 
-func (p *testTxPool) SubscribeSyncTxsEvent(ch chan<- core.NewTxsEvent) event.Subscription {
-	return p.txFeed.Subscribe(ch)
-}
-
 // AddRemotes appends a batch of transactions to the pool, and notifies any
 // listeners if the addition channel is non nil
 func (p *testTxPool) AddRemotes(txs []*types.Transaction) []error {
@@ -158,6 +154,10 @@ func (p *testTxPool) SubscribeNewTxsEvent(ch chan<- core.NewTxsEvent) event.Subs
 	return p.txFeed.Subscribe(ch)
 }
 
+//func (p *testTxPool) SubscribeSyncTxsEvent(ch chan<- core.NewTxsEvent) event.Subscription {
+//	return p.txFeed.Subscribe(ch)
+//}
+
 func (p *testTxPool) GetCurrentNonce(address common.Address) uint64 {
 	return 0
 }
@@ -166,7 +166,7 @@ func (p *testTxPool) GetAnchorTxs(anchor common.Address) (map[common.Address]typ
 	return pending, nil
 }
 
-func (pool *testTxPool) Nonce(addr common.Address) uint64 {
+func (p *testTxPool) Nonce(addr common.Address) uint64 {
 	//TODO
 	return 0
 }

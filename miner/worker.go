@@ -18,6 +18,7 @@ package miner
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 	"sync"
@@ -219,7 +220,11 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 	}
 
 	// Subscribe NewTxsEvent for tx pool
-	worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
+	if worker.chainConfig.Pbft == nil {
+		worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
+	} else {
+		worker.txsSub = (&event.Feed{}).Subscribe(worker.txsCh) //TODO: subscribe pbft new tx
+	}
 	// Subscribe events for blockchain
 	worker.chainHeadSub = eth.BlockChain().SubscribeChainHeadEvent(worker.chainHeadCh)
 	worker.chainSideSub = eth.BlockChain().SubscribeChainSideEvent(worker.chainSideCh)
@@ -535,6 +540,7 @@ func (w *worker) mainLoop() {
 			}
 
 		case ev := <-w.txsCh:
+			fmt.Println("worker::new tx")
 			// Apply transactions to the pending state if we're not mining.
 			//
 			// Note all transactions received may not be continuous with transactions

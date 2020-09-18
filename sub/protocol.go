@@ -109,7 +109,7 @@ type txPool interface {
 	// SubscribeNewTxsEvent should return an event subscription of
 	// NewTxsEvent and send events to the given channel.
 	SubscribeNewTxsEvent(chan<- core.NewTxsEvent) event.Subscription
-	SubscribeSyncTxsEvent(chan<- core.NewTxsEvent) event.Subscription
+	//SubscribeSyncTxsEvent(chan<- core.NewTxsEvent) event.Subscription
 
 	// GetLatestNonceFromQueueAndPending.
 	//GetCurrentNonce(address common.Address) uint64

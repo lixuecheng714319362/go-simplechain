@@ -18,148 +18,230 @@
 package core
 
 import (
+	"crypto/ecdsa"
 	"math/big"
-	"runtime"
-	"sync"
 	"testing"
+	"time"
 
-	"github.com/Beyond-simplechain/foundation/asio"
 	"github.com/simplechain-org/go-simplechain/common"
+	"github.com/simplechain-org/go-simplechain/core/state"
 	"github.com/simplechain-org/go-simplechain/core/types"
 	"github.com/simplechain-org/go-simplechain/crypto"
-	"github.com/simplechain-org/go-simplechain/rlp"
+	"github.com/simplechain-org/go-simplechain/event"
+	"github.com/simplechain-org/go-simplechain/params"
+	"github.com/stretchr/testify/assert"
 )
 
-var (
-	toAddress    = common.HexToAddress("0xffd79941b7085805f48ded97298694c6bb950e2c")
-	signer       = types.NewEIP155Signer(big.NewInt(110))
-	parallelTest = asio.NewParallel(10000, runtime.NumCPU())
-)
+// testTxPoolConfig is a transaction pool configuration without stateful disk
+// sideeffects used during testing.
+var testTxPoolConfig TxPoolConfig
 
-func BenchmarkSender10000(b *testing.B) { benchmarkTxs(b, txSender, 10000) }
-func BenchmarkSender5000(b *testing.B)  { benchmarkTxs(b, txSender, 5000) }
-func BenchmarkSender1000(b *testing.B)  { benchmarkTxs(b, txSender, 1000) }
+func init() {
+	testTxPoolConfig = DefaultTxPoolConfig
+	testTxPoolConfig.Journal = ""
+}
 
-func BenchmarkAsyncSender10000(b *testing.B) { benchmarkTxs(b, txAsyncSender, 10000) }
-func BenchmarkAsyncSender5000(b *testing.B)  { benchmarkTxs(b, txAsyncSender, 5000) }
-func BenchmarkAsyncSender1000(b *testing.B)  { benchmarkTxs(b, txAsyncSender, 1000) }
+type testBlockChain struct {
+	statedb       *state.StateDB
+	gasLimit      uint64
+	chainHeadFeed *event.Feed
 
-func BenchmarkHash10000(b *testing.B) { benchmarkTxs(b, txHash, 10000) }
-func BenchmarkHash5000(b *testing.B)  { benchmarkTxs(b, txHash, 5000) }
-func BenchmarkHash1000(b *testing.B)  { benchmarkTxs(b, txHash, 1000) }
+	hashNum map[common.Hash]uint64
+	chain   []*types.Block
+	current uint64
+}
 
-func BenchmarkAsyncHash10000(b *testing.B) { benchmarkTxs(b, txAsyncHash, 10000) }
-func BenchmarkAsyncHash5000(b *testing.B)  { benchmarkTxs(b, txAsyncHash, 5000) }
-func BenchmarkAsyncHash1000(b *testing.B)  { benchmarkTxs(b, txAsyncHash, 1000) }
+func newTestBlockChain() *testBlockChain {
+	bc := &testBlockChain{
+		hashNum:       make(map[common.Hash]uint64, 1),
+		chain:         make([]*types.Block, 1),
+		chainHeadFeed: new(event.Feed),
+		current:       0,
+	}
+	// make a genesis block[0]
+	genesis := types.NewBlock(&types.Header{}, nil, nil, nil)
+	bc.hashNum[genesis.Hash()] = 0
+	bc.chain[0] = genesis
+	return bc
+}
 
-func BenchmarkEncode10000(b *testing.B) { benchmarkTxs(b, txEncode, 10000) }
-func BenchmarkEncode5000(b *testing.B)  { benchmarkTxs(b, txEncode, 5000) }
-func BenchmarkEncode1000(b *testing.B)  { benchmarkTxs(b, txEncode, 1000) }
+func (bc *testBlockChain) GetTransactions(number uint64) types.Transactions {
+	if int(number) >= len(bc.chain) {
+		return nil
+	}
+	return bc.chain[number].Transactions()
+}
 
-func BenchmarkAsyncEncode10000(b *testing.B) { benchmarkTxs(b, txAsyncEncode, 10000) }
-func BenchmarkAsyncEncode5000(b *testing.B)  { benchmarkTxs(b, txAsyncEncode, 5000) }
-func BenchmarkAsyncEncode1000(b *testing.B)  { benchmarkTxs(b, txAsyncEncode, 1000) }
+func (bc *testBlockChain) CurrentBlock() *types.Block {
+	return bc.chain[bc.current]
+}
 
-func benchmarkTxs(b *testing.B, f func(transactions types.Transactions), size int) {
+func (bc *testBlockChain) GetBlock(hash common.Hash, number uint64) *types.Block {
+	if int(number) >= len(bc.chain) {
+		return nil
+	}
+	return bc.chain[number]
+}
+
+func (bc *testBlockChain) StateAt(common.Hash) (*state.StateDB, error) {
+	return bc.statedb, nil
+}
+
+func (bc *testBlockChain) SubscribeChainHeadEvent(ch chan<- ChainHeadEvent) event.Subscription {
+	return bc.chainHeadFeed.Subscribe(ch)
+}
+
+func (bc *testBlockChain) GetBlockNumber(hash common.Hash) uint64 {
+	return bc.hashNum[hash]
+}
+
+func (bc *testBlockChain) Produce(txs types.Transactions) *types.Block {
+	var (
+		parentHash common.Hash
+		parentTime uint64
+	)
+	if bc.current > 0 {
+		parent := bc.chain[bc.current]
+		parentHash = parent.Hash()
+		parentTime = parent.Time()
+	}
+
+	header := &types.Header{}
+	header.Number = new(big.Int).SetUint64(bc.current + 1)
+	header.ParentHash = parentHash
+	header.Time = parentTime + 1
+
+	block := types.NewBlock(header, txs, nil, nil)
+
+	bc.current++
+	bc.hashNum[block.Hash()] = bc.current
+	bc.chain = append(bc.chain, block)
+
+	go bc.chainHeadFeed.Send(ChainHeadEvent{Block: block})
+
+	return block
+}
+
+func getSignedTx(count int, key *ecdsa.PrivateKey, gas uint64, price *big.Int, nonce, blockLimit uint64) types.Transactions {
+	txs := make(types.Transactions, 0, count)
+	for i := 0; i < count; i++ {
+		addr := crypto.PubkeyToAddress(key.PublicKey)
+		signer := types.NewEIP155Signer(params.TestChainConfig.ChainID)
+		raw := types.NewTransaction(nonce+uint64(i), addr, big.NewInt(int64(i)), gas, price, nil)
+		if blockLimit > 0 {
+			raw.SetBlockLimit(blockLimit)
+		}
+		tx, err := types.SignTx(raw, signer, key)
+		if err != nil {
+			panic(err)
+		}
+		txs = append(txs, tx)
+	}
+	return txs
+}
+
+func setupTxPool() (*TxPool, *ecdsa.PrivateKey, *testBlockChain) {
+	blockchain := newTestBlockChain()
+	key, _ := crypto.GenerateKey()
+	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, blockchain)
+
+	return pool, key, blockchain
+}
+
+func TestTxPool_AddLocal(t *testing.T) {
+	txpool, key, blockchain := setupTxPool()
+
+	txs := getSignedTx(2, key, 21000, txpool.gasPrice, 0, txpool.chain.CurrentBlock().NumberU64()+1)
+
+	newTx := make(chan NewTxsEvent, 2)
+	sub := txpool.SubscribeNewTxsEvent(newTx)
+	defer sub.Unsubscribe()
+
+	err := txpool.AddLocal(txs[0])
+	assert.NoError(t, err)
+
+	err = txpool.AddLocal(txs[1])
+	assert.NoError(t, err)
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-newTx:
+		case err := <-sub.Err():
+			t.Error(err)
+		case <-time.After(time.Second):
+			t.Error("timeout waiting new tx")
+		}
+	}
+
+	// check double spend tx in pool
+	err = txpool.AddLocal(txs[0])
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "known transaction")
+
+	pendingTxs := txpool.PendingLimit(10)
+	assert.Equal(t, 2, pendingTxs.Len())
+
+	// generate a block
+	blockchain.Produce(pendingTxs)
+
+	for !txpool.txChecker.OK(txs[0], false) {
+		// wait until newHead handled
+		time.Sleep(time.Millisecond)
+	}
+
+	// check double spend tx in blockchain
+	err = txpool.AddLocal(txs[0])
+	assert.Equal(t, ErrDuplicated, err)
+
+	// check expired transaction
+	tx1 := getSignedTx(1, key, 21000, txpool.gasPrice, 2, txpool.chain.CurrentBlock().NumberU64())[0]
+	err = txpool.AddLocal(tx1)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "expired transaction")
+
+	// check underprice transaction
+	tx2 := getSignedTx(1, key, 21000, new(big.Int), 3, txpool.chain.CurrentBlock().NumberU64()+1)[0]
+	err = txpool.AddLocal(tx2)
+	assert.Equal(t, ErrUnderpriced, err)
+
+	// check overflow
+	txpool.config.GlobalSlots = 3
+	txs2 := getSignedTx(3, key, 21000, txpool.gasPrice, 4, txpool.chain.CurrentBlock().NumberU64()+1)
+	for _, tx := range txs2 {
+		assert.NoError(t, txpool.AddLocal(tx))
+	}
+
+	tx3 := getSignedTx(3, key, 21000, txpool.gasPrice, 7, txpool.chain.CurrentBlock().NumberU64()+1)[0]
+	err = txpool.AddLocal(tx3)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "txpool is full")
+}
+
+func BenchmarkTxPool_AddLocal10000(b *testing.B) { benchmarkAddLocal(b, 10000) }
+func BenchmarkTxPool_AddLocal5000(b *testing.B)  { benchmarkAddLocal(b, 5000) }
+func BenchmarkTxPool_AddLocal1000(b *testing.B)  { benchmarkAddLocal(b, 1000) }
+
+func benchmarkAddLocal(b *testing.B, size int) {
+	txpool, key, _ := setupTxPool()
+	txs := getSignedTx(size, key, 21000, txpool.gasPrice, 0, txpool.chain.CurrentBlock().NumberU64()+1)
+	txsCh := make(chan NewTxsEvent, size)
+	txpool.SubscribeNewTxsEvent(txsCh)
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		txs := signTxs(size)
+		txpool.clear()
 		b.StartTimer()
-		f(txs)
-	}
-}
-
-func txSender(txs types.Transactions) {
-	for _, tx := range txs {
-		types.Sender(signer, tx)
-	}
-}
-
-func txAsyncSender(txs types.Transactions) {
-	var wg sync.WaitGroup
-	for i := range txs {
-		tx := txs[i]
-		wg.Add(1)
-		//parallelTest.Put(func() error {
-		parallelTest.Put(func() error {
-			defer wg.Done()
-			types.Sender(signer, tx)
-			return nil
-		}, nil)
-	}
-
-	wg.Wait()
-}
-
-func txHash(txs types.Transactions) {
-	for _, tx := range txs {
-		tx.Hash()
-	}
-}
-
-func txAsyncHash(txs types.Transactions) {
-	var wg sync.WaitGroup
-
-	for i := range txs {
-		tx := txs[i]
-		wg.Add(1)
-		//parallelTest.Put(func() error {
-		parallelTest.Put(func() error {
-			defer wg.Done()
-			tx.Hash()
-			return nil
-		}, nil)
-	}
-
-	wg.Wait()
-}
-
-func txEncode(txs types.Transactions) {
-	buffer := make([][]byte, txs.Len())
-
-	for i, tx := range txs {
-		buffer[i], _ = rlp.EncodeToBytes(tx)
-	}
-}
-
-func txAsyncEncode(txs types.Transactions) {
-	buffer := make([][]byte, txs.Len())
-
-	var wg sync.WaitGroup
-
-	for i := range txs {
-		tx := txs[i]
-		wg.Add(1)
-		//parallelTest.Put(func() error {
-		parallelTest.Put(func() error {
-			defer wg.Done()
-			buffer[i], _ = rlp.EncodeToBytes(tx)
-			return nil
-		}, nil)
-	}
-
-	wg.Wait()
-}
-
-func signTxs(n int) types.Transactions {
-	var txs types.Transactions
-
-	for i := 0; i < n; i++ {
-		key, _ := crypto.GenerateKey()
-		tx := types.NewTransaction(uint64(i), toAddress, common.Big1, 21000, common.Big1, make([]byte, 64))
-		tx.SetBlockLimit(100)
-
-		signature, err := crypto.Sign(signer.Hash(tx).Bytes(), key)
-		if err != nil {
-			continue
+		for _, tx := range txs {
+			txpool.AddLocal(tx)
 		}
-		signed, err := tx.WithSignature(signer, signature)
-		if err != nil {
-			continue
-		}
-		txs = append(txs, signed)
-	}
 
-	return txs
+		for i := 0; i < size; i++ {
+			select {
+			case <-txsCh:
+			case <-time.After(time.Second):
+				b.Fatal("timeout")
+			}
+		}
+	}
 }

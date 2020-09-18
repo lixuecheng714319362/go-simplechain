@@ -15,14 +15,12 @@ import (
 func (pm *ProtocolManager) handleTxs(legacy bool) {
 	// broadcast transactions
 	pm.txsCh = make(chan core.NewTxsEvent, txChanSize)
+	pm.txsSub = pm.txpool.SubscribeNewTxsEvent(pm.txsCh)
 
 	if legacy {
-		pm.txsSub = pm.txpool.SubscribeNewTxsEvent(pm.txsCh)
 		go pm.txBroadcastLoopLegacy()
 
 	} else {
-		pm.txsSub = pm.txpool.SubscribeSyncTxsEvent(pm.txsCh)
-
 		pm.txSyncPeriod = defaultTxSyncPeriod
 		pm.txSyncTimer = time.NewTimer(pm.txSyncPeriod)
 
@@ -186,8 +184,6 @@ func (pm *ProtocolManager) txCollectLoop() {
 	for {
 		select {
 		case ev := <-pm.txsCh:
-			//testReport(ev.Txs) //TODO-D: report
-
 			//newTransactions := atomic.AddInt64(&pm.newTransactions, int64(len(ev.Txs)))
 			pm.newTxLock.Lock()
 			for _, tx := range ev.Txs {
