@@ -21,7 +21,6 @@ import (
 
 	"github.com/simplechain-org/go-simplechain/consensus"
 	"github.com/simplechain-org/go-simplechain/consensus/istanbul"
-	"github.com/simplechain-org/go-simplechain/log"
 )
 
 func (c *core) sendPreprepare(request *istanbul.Request) {
@@ -29,7 +28,6 @@ func (c *core) sendPreprepare(request *istanbul.Request) {
 
 	// If I'm the proposer and I have the same sequence with the proposal
 	if c.current.Sequence().Cmp(request.Proposal.Number()) == 0 && c.IsProposer() {
-		log.Error("[debug] is Proposer, send Proposal", "Proposer", c.valSet.GetProposer().Address(), "num", c.current.Sequence())
 		curView := c.currentView()
 		preprepare, err := Encode(&istanbul.Preprepare{
 			View:     curView,
