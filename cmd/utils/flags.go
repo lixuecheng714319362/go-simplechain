@@ -21,6 +21,7 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
+	"github.com/simplechain-org/go-simplechain/consensus/pbft"
 	"io"
 	"io/ioutil"
 	"math/big"
@@ -490,10 +491,6 @@ var (
 		Name:  "miner.noverify",
 		Usage: "Disable remote sealing verification",
 	}
-	MinerMaxBlockTxsSealFlag = cli.Uint64Flag{
-		Name:  "miner.maxblocktxs",
-		Usage: "Default max txs one block can seal",
-	}
 	// Account settings
 	UnlockedAccountFlag = cli.StringFlag{
 		Name:  "unlock",
@@ -840,6 +837,10 @@ var (
 	PbftEnableLightFlag = cli.BoolFlag{
 		Name:  "pbft.light",
 		Usage: "Enable send and receive light block",
+	}
+	PbftMaxBlockTxsSealFlag = cli.Uint64Flag{
+		Name:  "pbft.maxblocktxs",
+		Usage: "Default max txs one block can seal",
 	}
 
 	// Metrics flags
@@ -1500,9 +1501,6 @@ func setMiner(ctx *cli.Context, cfg *miner.Config) {
 	if ctx.GlobalIsSet(MinerNoVerfiyFlag.Name) {
 		cfg.Noverify = ctx.Bool(MinerNoVerfiyFlag.Name)
 	}
-	if ctx.GlobalIsSet(MinerMaxBlockTxsSealFlag.Name) {
-		miner.DefaultMaxBlockTxs = ctx.GlobalUint64(MinerMaxBlockTxsSealFlag.Name)
-	}
 }
 
 func setIstanbul(ctx *cli.Context, cfg *eth.Config) {
@@ -1523,6 +1521,9 @@ func setPbft(ctx *cli.Context, cfg *eth.Config) {
 	}
 	if ctx.GlobalIsSet(PbftEnableLightFlag.Name) {
 		cfg.Pbft.LightMode = ctx.GlobalBool(PbftEnableLightFlag.Name)
+	}
+	if ctx.GlobalIsSet(PbftMaxBlockTxsSealFlag.Name) {
+		pbft.MaxBlockTxs = ctx.GlobalUint64(PbftMaxBlockTxsSealFlag.Name)
 	}
 }
 

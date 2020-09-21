@@ -167,7 +167,7 @@ var (
 		utils.PbftRequestTimeoutFlag,
 		utils.PbftBlockPeriodFlag,
 		utils.PbftEnableLightFlag,
-		utils.MinerMaxBlockTxsSealFlag,
+		utils.PbftMaxBlockTxsSealFlag,
 		utils.ConfirmDepthFlag,
 		utils.AnchorSignerFlag,
 		utils.AnchorMaxGasPriceFlag,

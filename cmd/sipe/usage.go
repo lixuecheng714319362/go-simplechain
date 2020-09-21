@@ -281,7 +281,6 @@ var AppHelpFlagGroups = []flagGroup{
 			utils.MinerLegacyGasPriceFlag,
 			utils.MinerLegacyEtherbaseFlag,
 			utils.MinerLegacyExtraDataFlag,
-			utils.MinerMaxBlockTxsSealFlag,
 		},
 	},
 	{
@@ -309,6 +308,7 @@ var AppHelpFlagGroups = []flagGroup{
 			utils.PbftRequestTimeoutFlag,
 			utils.PbftBlockPeriodFlag,
 			utils.PbftEnableLightFlag,
+			utils.PbftMaxBlockTxsSealFlag,
 		},
 	},
 	{
