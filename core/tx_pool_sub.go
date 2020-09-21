@@ -317,14 +317,12 @@ func (pool *TxPool) loop() {
 		case ev := <-pool.chainHeadCh:
 			if ev.Block != nil {
 				pool.mu.Lock()
-				start := time.Now()
 				//if pool.chainconfig.IsHomestead(ev.Block.Number()) {
 				//	pool.homestead = true
 				//}
 				pool.reset(head.Header(), ev.Block, ev.Block.Header())
 				head = ev.Block
 
-				log.Debug("[debug] txpool.reset of newChainHead", "time", time.Since(start))
 				pool.mu.Unlock()
 			}
 		// Be unsubscribed due to system stopped
@@ -605,17 +603,19 @@ func (pool *TxPool) PendingLimit(limit int) types.Transactions {
 
 	pending := make(types.Transactions, 0, size)
 	invalid := make(map[common.Hash]struct{})
+	duplicate := 0
 
 	pool.queue.Range(func(tx *types.Transaction) bool {
 		if _, ok := invalid[tx.Hash()]; ok {
 			return true
 		}
 		if !pool.blockTxCheck.OK(tx, false) {
-			log.Trace("Pending check failed")
+			log.Trace("Pending check failed, duplicate tx")
+			duplicate++
 			return true
 		}
 		if err := pool.blockTxCheck.CheckBlockLimit(tx); err != nil {
-			log.Trace("Pending block limit check failed")
+			log.Trace("Pending block limit check failed", "err", err)
 			invalid[tx.Hash()] = struct{}{}
 			return true
 		}
@@ -624,7 +624,10 @@ func (pool *TxPool) PendingLimit(limit int) types.Transactions {
 
 		return len(pending) < limit
 	})
+
+	log.Trace("PendingLimit transactions", "duplicate", duplicate, "expired", len(invalid))
 	go pool.RemoveInvalidTxs(invalid)
+
 	return pending
 }
 

@@ -156,7 +156,7 @@ func (w *worker) commitRaftWork() {
 		return
 	}
 
-	allTxs := w.eth.TxPool().PendingLimit(int(DefaultMaxBlockTxs))
+	allTxs := w.eth.TxPool().PendingLimit(1000)
 	//if err != nil {
 	//	log.Error("Failed to fetch pending transactions", "err", err)
 	//	return

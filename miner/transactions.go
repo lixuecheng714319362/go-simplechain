@@ -218,6 +218,10 @@ func (w *worker) Execute(block *types.Block) (*types.Block, error) {
 	return block, nil
 }
 
-func (w *worker) AdjustMaxBlockTxs(remaining time.Duration, blockTxs int, timeout bool) {
-	panic("AdjustMaxBlockTxs is not support for this worker")
+func (w *worker) OnTimeout() {
+	panic("OnTimeout is not support for this worker")
+}
+
+func (w *worker) OnCommit(uint64, int) {
+	panic("OnTimeout is not support for this worker")
 }

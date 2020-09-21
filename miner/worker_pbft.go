@@ -19,9 +19,11 @@ package miner
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/simplechain-org/go-simplechain/common"
+	"github.com/simplechain-org/go-simplechain/consensus/pbft"
 	"github.com/simplechain-org/go-simplechain/core"
 	"github.com/simplechain-org/go-simplechain/core/state"
 	"github.com/simplechain-org/go-simplechain/core/types"
@@ -66,18 +68,81 @@ func (w *worker) Execute(block *types.Block) (*types.Block, error) {
 	return block, nil
 }
 
-func (w *worker) AdjustMaxBlockTxs(remaining time.Duration, blockTxs int, timeout bool) {
-	//TODO: handle timeout & increase pbftCtx.maxBlockTxs
-	//if timeout {
-	//	atomic.StoreUint64(&w.pbftCtx.MaxBlockTxs, math.Uint64Max(w.pbftCtx.MaxBlockTxs/2, limitMinBlockTxs))
-	//} else if remaining > 0 && uint64(blockTxs) >= w.pbftCtx.MaxBlockTxs {
-	//	maxBlockTxs := w.pbftCtx.MaxBlockTxs
-	//	if maxBlockTxs > 1 {
-	//		atomic.StoreUint64(&w.pbftCtx.MaxBlockTxs, math.Uint64Min(maxBlockTxs*3/2, limitMaxBlockTxs))
-	//	} else {
-	//		atomic.StoreUint64(&w.pbftCtx.MaxBlockTxs, maxBlockTxs+1)
-	//	}
-	//}
+func (w *worker) OnTimeout() {
+	txNum := int(w.pbftCtx.MaxBlockTxs)
+	if w.pbftCtx.MaxBlockTxs > pbft.MaxBlockTxs {
+		atomic.StoreUint64(&w.pbftCtx.MaxBlockTxs, pbft.MaxBlockTxs)
+	}
+	if txNum > 0 && (w.pbftCtx.LastTimeoutTx == 0 || (w.pbftCtx.LastTimeoutTx > txNum && txNum > w.pbftCtx.MaxNoTimeoutTx)) {
+		w.pbftCtx.LastTimeoutTx = txNum
+	}
+	if maxBlockTxs := w.pbftCtx.MaxBlockTxs; maxBlockTxs > 2 {
+		atomic.StoreUint64(&w.pbftCtx.MaxBlockTxs, maxBlockTxs/2)
+	}
+	log.Info("decrease maxBlockCanSeal to half for PBFT timeout",
+		"old", w.pbftCtx.MaxBlockTxs*2, "new", w.pbftCtx.MaxBlockTxs, "lastTimeout", w.pbftCtx.LastTimeoutTx)
+}
+
+func (w *worker) OnCommit(blockNum uint64, txNum int) {
+	//defer func(before uint64) {
+	//	log.Error("[debug] pbft context", "before", before, "maxBlockTxs", w.pbftCtx.MaxBlockTxs,
+	//		"maxNoTimeoutTx", w.pbftCtx.MaxNoTimeoutTx, "lastTimeoutTx", w.pbftCtx.LastTimeoutTx)
+	//}(w.pbftCtx.MaxBlockTxs)
+
+	if w.pbftCtx.MaxBlockTxs >= pbft.MaxBlockTxs {
+		atomic.StoreUint64(&w.pbftCtx.MaxBlockTxs, pbft.MaxBlockTxs)
+	}
+	// old block, ignore
+	if blockNum <= w.chain.CurrentBlock().NumberU64() {
+		return
+	}
+	// larger than MaxNoTimeoutTx, increase MaxNoTimeoutTx
+	if txNum > 0 && (w.pbftCtx.MaxNoTimeoutTx == 0 || w.pbftCtx.MaxNoTimeoutTx < txNum) {
+		w.pbftCtx.MaxNoTimeoutTx = txNum
+	}
+	if w.pbftCtx.MaxBlockTxs >= pbft.MaxBlockTxs {
+		atomic.StoreUint64(&w.pbftCtx.MaxBlockTxs, pbft.MaxBlockTxs)
+		return
+	}
+	if w.pbftCtx.LastTimeoutTx <= w.pbftCtx.MaxNoTimeoutTx {
+		w.adjustTimeoutTx()
+	}
+	if w.pbftCtx.LastTimeoutTx > 0 && w.pbftCtx.MaxBlockTxs >= uint64(w.pbftCtx.LastTimeoutTx) {
+		return
+	}
+	// try increase to 1.5 times
+	if maxBlockTx := w.pbftCtx.MaxBlockTxs; maxBlockTx > 2 {
+		atomic.AddUint64(&w.pbftCtx.MaxBlockTxs, maxBlockTx/2)
+	} else {
+		atomic.AddUint64(&w.pbftCtx.MaxBlockTxs, 1)
+	}
+	// decrease to lastTimeout size
+	if w.pbftCtx.LastTimeoutTx > 0 && w.pbftCtx.MaxBlockTxs > uint64(w.pbftCtx.LastTimeoutTx) {
+		atomic.StoreUint64(&w.pbftCtx.MaxBlockTxs, uint64(w.pbftCtx.LastTimeoutTx))
+	}
+	// increase to maxNoTimeout size
+	if w.pbftCtx.MaxNoTimeoutTx > 0 && w.pbftCtx.MaxBlockTxs < uint64(w.pbftCtx.MaxNoTimeoutTx) {
+		atomic.StoreUint64(&w.pbftCtx.MaxBlockTxs, uint64(w.pbftCtx.MaxNoTimeoutTx))
+	}
+}
+
+func (w *worker) adjustTimeoutTx() {
+	if uint64(w.pbftCtx.LastTimeoutTx) >= pbft.MaxBlockTxs {
+		w.pbftCtx.LastTimeoutTx = int(pbft.MaxBlockTxs)
+		return
+	}
+	if uint64(w.pbftCtx.MaxNoTimeoutTx) == pbft.MaxBlockTxs {
+		w.pbftCtx.LastTimeoutTx = w.pbftCtx.MaxNoTimeoutTx
+		return
+	}
+	if float64(w.pbftCtx.MaxNoTimeoutTx)*0.1 > 1 {
+		w.pbftCtx.LastTimeoutTx = int(float64(w.pbftCtx.MaxNoTimeoutTx) * 1.1)
+	} else {
+		w.pbftCtx.LastTimeoutTx *= 2
+	}
+	if uint64(w.pbftCtx.LastTimeoutTx) >= pbft.MaxBlockTxs {
+		w.pbftCtx.LastTimeoutTx = int(pbft.MaxBlockTxs)
+	}
 }
 
 func (w *worker) executeBlock(block *types.Block, statedb *state.StateDB) (*types.Block, *state.ExecutedEnvironment, error) {
@@ -86,11 +151,12 @@ func (w *worker) executeBlock(block *types.Block, statedb *state.StateDB) (*type
 		usedGas  = new(uint64)
 		header   = block.Header()
 		allLogs  []*types.Log
-		gp       = new(core.GasPool).AddGas(block.GasLimit())
-		cfg      = *w.chain.GetVMConfig()
+		//
+		cfg = *w.chain.GetVMConfig()
 	)
 
 	// Iterate over and process the individual transactions
+	gp := new(core.GasPool).AddGas(block.GasLimit())
 	for i, tx := range block.Transactions() {
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 		receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, nil, gp, statedb, header, tx, usedGas, cfg)
@@ -100,6 +166,13 @@ func (w *worker) executeBlock(block *types.Block, statedb *state.StateDB) (*type
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
 	}
+
+	// parallel process transactions TODO: support parallel transactions
+	/*var err error
+	receipts, allLogs, err = core.ParallelApplyTransactions(w.chainConfig, w.chain, nil, statedb, header, cfg, block.Transactions())
+	if err != nil {
+		return nil, nil, err
+	}*/
 
 	header.GasUsed = *usedGas
 	header.Bloom = types.CreateBloom(receipts)
@@ -115,13 +188,13 @@ func (w *worker) executeBlock(block *types.Block, statedb *state.StateDB) (*type
 }
 
 func (w *worker) commitByzantium(interrupt *int32, noempty bool, tstart time.Time) {
-	//log.Report("-----------------------------------------------------------------------")
-	//start := time.Now()
-	//defer func(start time.Time) {
-	//	log.Report("commit byzantium seal task", "cost", time.Since(start))
-	//}(start)
+	/*defer func(start time.Time) {
+		log.Report("commit byzantium seal task", "cost", time.Since(start))
+	}(time.Now())*/
+
 	// Fill the block with all available pending transactions.
-	pending := w.eth.TxPool().PendingLimit(int(w.pbftCtx.MaxBlockTxs))
+	maxBlockTxs := atomic.LoadUint64(&w.pbftCtx.MaxBlockTxs)
+	pending := w.eth.TxPool().PendingLimit(int(maxBlockTxs))
 
 	//log.Report("commitByzantium -> PendingLimit", "cost", time.Since(start))
 

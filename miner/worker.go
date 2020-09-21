@@ -87,8 +87,6 @@ const (
 	limitMinBlockTxs = 1
 )
 
-var DefaultMaxBlockTxs uint64 = 1000
-
 // environment is the worker's current environment and holds all of the current state information.
 type environment struct {
 	signer types.Signer
@@ -253,7 +251,7 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 	}
 
 	if bft, ok := engine.(consensus.Pbft); ok {
-		worker.pbftCtx = &pbft.SealContext{MaxBlockTxs: DefaultMaxBlockTxs}
+		worker.pbftCtx = pbft.CreateSealContext()
 		bft.SetSealer(worker)
 		bft.SetTxPool(eth.TxPool())
 	}

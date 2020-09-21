@@ -20,7 +20,6 @@ package consensus
 import (
 	"github.com/simplechain-org/go-simplechain/common"
 	"github.com/simplechain-org/go-simplechain/core/types"
-	"time"
 )
 
 // Constants to match up protocol versions and messages
@@ -60,8 +59,10 @@ type Broadcaster interface {
 type Sealer interface {
 	// Execute block and return executed block
 	Execute(block *types.Block) (*types.Block, error)
-	// Adjust max block txs can seal
-	AdjustMaxBlockTxs(remaining time.Duration, blockTxs int, timeout bool)
+
+	OnTimeout()
+
+	OnCommit(blockNum uint64, txNum int)
 }
 
 type TxPool interface {
