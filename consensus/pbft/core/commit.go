@@ -54,7 +54,6 @@ func (c *core) broadcastCommit(sub *pbft.Subject) {
 }
 
 func (c *core) handleCommit(msg *message, src pbft.Validator) error {
-	logger := c.logger.New("from", src, "state", c.state)
 	c.commitTimestamp = time.Now()
 
 	// Decode COMMIT message
@@ -63,9 +62,6 @@ func (c *core) handleCommit(msg *message, src pbft.Validator) error {
 	if err != nil {
 		return errFailedDecodeCommit
 	}
-
-	logger.Trace("[debug] $$ pbft handle Commit $$ 【3】", "number", commit.View.Sequence,
-		"hash", commit.Pending)
 
 	if err := c.checkMessage(msgCommit, commit.View); err != nil {
 		return err

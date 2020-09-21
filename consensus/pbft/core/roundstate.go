@@ -24,18 +24,19 @@ import (
 
 	"github.com/simplechain-org/go-simplechain/common"
 	"github.com/simplechain-org/go-simplechain/consensus/pbft"
-	"github.com/simplechain-org/go-simplechain/log"
 	"github.com/simplechain-org/go-simplechain/rlp"
 )
 
 // newRoundState creates a new roundState instance with the given view and validatorSet
 // lockedHash and preprepare are for round change when lock exists,
 // we need to keep a reference of preprepare in order to propose locked proposal when there is a lock and itself is the proposer
-func newRoundState(view *pbft.View, validatorSet pbft.ValidatorSet, lockedHash common.Hash, preprepare *pbft.Preprepare, pendingRequest *pbft.Request, hasBadProposal func(hash common.Hash) bool) *roundState {
+func newRoundState(view *pbft.View, validatorSet pbft.ValidatorSet, lockedHash common.Hash, preprepare *pbft.Preprepare,
+	prepare pbft.Conclusion, pendingRequest *pbft.Request, hasBadProposal func(hash common.Hash) bool) *roundState {
 	return &roundState{
 		round:          view.Round,
 		sequence:       view.Sequence,
 		Preprepare:     preprepare,
+		Prepare:        prepare,
 		Prepares:       newMessageSet(validatorSet),
 		Commits:        newMessageSet(validatorSet),
 		lockedHash:     lockedHash,
@@ -213,7 +214,6 @@ func (s *roundState) GetLockedHash() common.Hash {
 // Stream. It is not forbidden to read less or more, but it might
 // be confusing.
 func (s *roundState) DecodeRLP(stream *rlp.Stream) error {
-	log.Error("[debug] decode roundState")
 	debug.PrintStack()
 	var ss struct {
 		Round          *big.Int

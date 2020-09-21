@@ -64,7 +64,7 @@ func New(backend pbft.Backend, config *pbft.Config) Engine {
 // ----------------------------------------------------------------------------
 
 const (
-	timeoutRate     = 1.5
+	timeoutRate     = 1.1
 	maxRoundTimeout = 20
 )
 
@@ -229,17 +229,8 @@ func (c *core) commit() {
 
 }
 
-var last time.Time //TODO-D: test startNewRound loop time cost
-
 // startNewRound starts a new round. if round equals to 0, it means to starts a new sequence
 func (c *core) startNewRound(round *big.Int) {
-	{
-		if !last.IsZero() {
-			log.Trace("[debug] pbft round time >>>", "round", round, "sinceLast", time.Since(last))
-		}
-		last = time.Now()
-	}
-
 	var logger log.Logger
 	if c.current == nil {
 		logger = c.logger.New("old_round", -1, "old_seq", 0)
@@ -341,12 +332,12 @@ func (c *core) updateRoundState(view *pbft.View, validatorSet pbft.ValidatorSet,
 	// Lock only if both roundChange is true and it is locked
 	if roundChange && c.current != nil {
 		if c.current.IsHashLocked() {
-			c.current = newRoundState(view, validatorSet, c.current.GetLockedHash(), c.current.Preprepare, c.current.pendingRequest, c.backend.HasBadProposal)
+			c.current = newRoundState(view, validatorSet, c.current.GetLockedHash(), c.current.Preprepare, c.current.Prepare, c.current.pendingRequest, c.backend.HasBadProposal)
 		} else {
-			c.current = newRoundState(view, validatorSet, common.Hash{}, nil, c.current.pendingRequest, c.backend.HasBadProposal)
+			c.current = newRoundState(view, validatorSet, common.Hash{}, nil, nil, c.current.pendingRequest, c.backend.HasBadProposal)
 		}
 	} else {
-		c.current = newRoundState(view, validatorSet, common.Hash{}, nil, nil, c.backend.HasBadProposal)
+		c.current = newRoundState(view, validatorSet, common.Hash{}, nil, nil, nil, c.backend.HasBadProposal)
 	}
 }
 

@@ -227,8 +227,18 @@ func (sb *backend) VerifyHeaders(chain consensus.ChainReader, headers []*types.H
 	abort := make(chan struct{})
 	results := make(chan error, len(headers))
 	go func() {
+		errored := false
 		for i, header := range headers {
-			err := sb.verifyHeader(chain, header, headers[:i])
+			var err error
+			if errored {
+				err = consensus.ErrUnknownAncestor
+			} else {
+				err = sb.verifyHeader(chain, header, headers[:i])
+			}
+
+			if err != nil {
+				errored = true
+			}
 
 			select {
 			case <-abort:
@@ -512,7 +522,7 @@ func (sb *backend) signBlock(parent *types.Header, block *types.Block) (*types.B
 // APIs returns the RPC APIs this consensus engine provides.
 func (sb *backend) APIs(chain consensus.ChainReader) []rpc.API {
 	return []rpc.API{{
-		Namespace: "istanbul",
+		Namespace: "pbft",
 		Version:   "1.0",
 		Service:   &API{chain: chain, pbft: sb},
 		Public:    true,

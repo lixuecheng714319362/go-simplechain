@@ -36,7 +36,7 @@ func TestCheckRequestMsg(t *testing.T) {
 		current: newRoundState(&pbft.View{
 			Sequence: big.NewInt(1),
 			Round:    big.NewInt(0),
-		}, newTestValidatorSet(4), common.Hash{}, nil, nil, nil),
+		}, newTestValidatorSet(4), common.Hash{}, nil, nil,nil, nil),
 	}
 
 	// invalid request
@@ -91,7 +91,7 @@ func TestStoreRequestMsg(t *testing.T) {
 		current: newRoundState(&pbft.View{
 			Sequence: big.NewInt(0),
 			Round:    big.NewInt(0),
-		}, newTestValidatorSet(4), common.Hash{}, nil, nil, nil),
+		}, newTestValidatorSet(4), common.Hash{}, nil, nil, nil, nil),
 		pendingRequests:   prque.New(nil),
 		pendingRequestsMu: new(sync.Mutex),
 	}

@@ -36,7 +36,7 @@ func TestCheckMessage(t *testing.T) {
 		current: newRoundState(&pbft.View{
 			Sequence: big.NewInt(1),
 			Round:    big.NewInt(0),
-		}, newTestValidatorSet(4), common.Hash{}, nil, nil, nil),
+		}, newTestValidatorSet(4), common.Hash{}, nil, nil, nil, nil),
 	}
 
 	// invalid view format
@@ -245,7 +245,7 @@ func TestProcessFutureBacklog(t *testing.T) {
 		current: newRoundState(&pbft.View{
 			Sequence: big.NewInt(1),
 			Round:    big.NewInt(0),
-		}, newTestValidatorSet(4), common.Hash{}, nil, nil, nil),
+		}, newTestValidatorSet(4), common.Hash{}, nil, nil, nil, nil),
 		state: StateAcceptRequest,
 	}
 	c.subscribeEvents()
@@ -338,7 +338,7 @@ func testProcessBacklog(t *testing.T, msg *message) {
 		current: newRoundState(&pbft.View{
 			Sequence: big.NewInt(1),
 			Round:    big.NewInt(0),
-		}, newTestValidatorSet(4), common.Hash{}, nil, nil, nil),
+		}, newTestValidatorSet(4), common.Hash{}, nil, nil, nil, nil),
 	}
 	c.subscribeEvents()
 	defer c.unsubscribeEvents()

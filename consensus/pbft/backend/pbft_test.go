@@ -392,8 +392,8 @@ OUT1:
 		select {
 		case err := <-results:
 			if err != nil {
-				if err != errEmptyCommittedSeals && err != errInvalidCommittedSeals {
-					t.Errorf("error mismatch: have %v, want errEmptyCommittedSeals|errInvalidCommittedSeals", err)
+				if err != errEmptyCommittedSeals && err != errInvalidCommittedSeals && err != consensus.ErrUnknownAncestor {
+					t.Errorf("error mismatch: have %v, want errEmptyCommittedSeals|errInvalidCommittedSeals|ErrUnknownAncestor", err)
 					break OUT1
 				}
 			}
@@ -406,7 +406,7 @@ OUT1:
 		}
 	}
 	// abort cases
-	abort, results := engine.VerifyHeaders(chain, headers, nil)
+	_, results = engine.VerifyHeaders(chain, headers, nil)
 	timeout = time.NewTimer(timeoutDura)
 	index = 0
 OUT2:
@@ -414,18 +414,10 @@ OUT2:
 		select {
 		case err := <-results:
 			if err != nil {
-				if err != errEmptyCommittedSeals && err != errInvalidCommittedSeals {
-					t.Errorf("error mismatch: have %v, want errEmptyCommittedSeals|errInvalidCommittedSeals", err)
+				if err != errEmptyCommittedSeals && err != errInvalidCommittedSeals && err != consensus.ErrUnknownAncestor {
+					t.Errorf("error mismatch: have %v, want errEmptyCommittedSeals|errInvalidCommittedSeals|ErrUnknownAncestor", err)
 					break OUT2
 				}
-			}
-			index++
-			if index == 5 {
-				abort <- struct{}{}
-			}
-			if index >= size {
-				t.Errorf("verifyheaders should be aborted")
-				break OUT2
 			}
 		case <-timeout.C:
 			break OUT2
@@ -437,20 +429,20 @@ OUT2:
 	timeout = time.NewTimer(timeoutDura)
 	index = 0
 	errors := 0
-	expectedErrors := 2
+	expectedErrors := 0
 OUT3:
 	for {
 		select {
 		case err := <-results:
 			if err != nil {
-				if err != errEmptyCommittedSeals && err != errInvalidCommittedSeals {
+				if err != errEmptyCommittedSeals && err != errInvalidCommittedSeals && err != consensus.ErrUnknownAncestor {
 					errors++
 				}
 			}
 			index++
 			if index == size {
 				if errors != expectedErrors {
-					t.Errorf("error mismatch: have %v, want %v", err, expectedErrors)
+					t.Errorf("error mismatch: have %v, want %v", errors, expectedErrors)
 				}
 				break OUT3
 			}

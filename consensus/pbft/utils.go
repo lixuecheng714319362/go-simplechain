@@ -57,6 +57,5 @@ func CheckValidatorSignature(valSet ValidatorSet, data []byte, sig []byte) (comm
 		return val.Address(), nil
 	}
 
-	log.Error("[debug] CheckValidatorSignature ErrUnauthorizedAddress >_< ", "vsize", valSet.Size())
 	return common.Address{}, ErrUnauthorizedAddress
 }

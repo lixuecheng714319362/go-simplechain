@@ -55,7 +55,7 @@ func (c *core) sendPreprepare(request *pbft.Request) {
 			Msg:  preprepareMsg,
 		}, false)
 
-		c.handlePrepare2(&preprepare)
+		c.handlePrepare2(&preprepare, nil, nil)
 	}
 }
 
@@ -79,17 +79,26 @@ func (c *core) handlePreprepare(msg *message, src pbft.Validator) error {
 		return err
 	}
 
-	return c.handlePrepare2(preprepare)
+	return c.handlePrepare2(preprepare, msg, src)
 }
 
-func (c *core) handlePrepare2(preprepare *pbft.Preprepare) error {
+func (c *core) handlePrepare2(preprepare *pbft.Preprepare, msg *message, src pbft.Validator) error {
 	logger := c.logger.New("state", c.state)
 	// Verify the proposal we received ()
 	if duration, err := c.backend.Verify(preprepare.Proposal, true, true); err != nil {
 		// if it's a future block, we will handle it again after the duration
 		if err == consensus.ErrFutureBlock {
-			logger.Trace("Proposed block will be committed in the future", "err", err, "duration", duration)
-			// wait until block timestamp at commit stage
+			if duration > time.Second*time.Duration(c.config.BlockPeriod) && msg != nil {
+				logger.Warn("Proposed block will be committed in the future", "err", err, "duration", duration)
+				// wait until block timestamp at commit stage
+				c.stopFuturePreprepareTimer()
+				c.futurePreprepareTimer = time.AfterFunc(duration, func() {
+					c.sendEvent(backlogEvent{
+						src: src,
+						msg: msg,
+					})
+				})
+			}
 		} else {
 			logger.Warn("Failed to verify proposal", "err", err, "duration", duration)
 			c.sendNextRoundChange()
@@ -167,7 +176,6 @@ func (c *core) checkAndAcceptPreprepare(preprepare *pbft.Preprepare) error {
 	//   1. the locked proposal and the received proposal match
 	//   2. we have no locked proposal
 	c.acceptPreprepare(preprepare)
-	c.setState(StatePreprepared)
 
 	//log.Report("checkAndAcceptPreprepare", "cost", time.Since(record))
 
@@ -181,6 +189,8 @@ func (c *core) checkAndAcceptPreprepare(preprepare *pbft.Preprepare) error {
 		// Send round change
 		c.sendNextRoundChange()
 	}
+
+	c.setState(StatePreprepared)
 	c.sendPrepare()
 
 	return nil

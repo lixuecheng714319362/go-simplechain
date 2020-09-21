@@ -271,10 +271,10 @@ func (sb *backend) Commit(conclusion pbft.Conclusion, commitSeals [][]byte) erro
 	hTime := time.Unix(int64(h.Time), 0)
 	delay := hTime.Sub(now())
 	if sb.sealer != nil {
-		sb.sealer.AdjustMaxBlockTxs(delay, block.Transactions().Len(), false)
+		sb.sealer.OnCommit(block.NumberU64(), block.Transactions().Len())
 	}
 
-	//log.Report("pbft consensus seal cost",
+	//log.Report("pbft consensus seal cost",Ω
 	//	"num", h.Number, "totalCost", time.Since(sb.sealStart), "execCost", sb.execCost)
 
 	// wait until block timestamp
@@ -415,7 +415,7 @@ func (sb *backend) Execute(proposal pbft.Proposal) (pbft.Conclusion, error) {
 
 func (sb *backend) OnTimeout() {
 	if sb.sealer != nil {
-		sb.sealer.AdjustMaxBlockTxs(0, 0, true)
+		sb.sealer.OnTimeout()
 	}
 }
 

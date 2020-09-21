@@ -11,6 +11,8 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -128,7 +130,26 @@ func main() {
 	}
 
 	time.Sleep(time.Second)
-	log.Printf("txsCount=%v", txsCount)
+	//client, err := ethclient.Dial(*url)
+	//defer client.Close()
+	//if err != nil {
+	//	log.Printf(warnPrefix+"Failed to connect: %v", err)
+	//	return
+	//}
+	//recordCount := len(records)
+	//onChainCount := int64(0)
+	//
+	//for i := 0; i < recordCount; i++ {
+	//	receipt, err := client.TransactionReceipt(context.Background(), records[i])
+	//	if err != nil {
+	//		log.Printf(warnPrefix+"Failed to TransactionReceipt: %v", err)
+	//		continue
+	//	}
+	//	if receipt != nil {
+	//		onChainCount++
+	//	}
+	//}
+	//log.Printf("txsCount=%v,recordCount=%v,onChainCount=%v", txsCount, recordCount, onChainCount)
 }
 
 func getBlockLimit(ctx context.Context, client *ethclient.Client, last uint64) uint64 {
@@ -253,6 +274,9 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 	}
 }
 
+var records []common.Hash
+var recordsMu sync.Mutex
+
 func sendTransaction(ctx context.Context, signer types.Signer, key *ecdsa.PrivateKey, nonce, limit uint64,
 	toAddress common.Address, value *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte, client *ethclient.Client) {
 
@@ -271,9 +295,16 @@ func sendTransaction(ctx context.Context, signer types.Signer, key *ecdsa.Privat
 	}
 	err = client.SendTransaction(ctx, signed)
 	switch err {
-	case nil, context.Canceled:
+	case nil:
+		//recordsMu.Lock()
+		//records = append(records, signed.Hash())
+		//recordsMu.Unlock()
+	case context.Canceled:
 	default:
 		log.Printf(warnPrefix+" send tx[hash:%s, nonce:%d]: %v", tx.Hash().String(), tx.Nonce(), err)
+		if strings.Contains(err.Error(), "txpool is full") {
+			time.Sleep(time.Second) // waiting block
+		}
 		return
 	}
 }

@@ -282,7 +282,7 @@ func NewTestSystemWithBackend(n, f uint64) *testSystem {
 		core.current = newRoundState(&pbft.View{
 			Round:    big.NewInt(0),
 			Sequence: big.NewInt(1),
-		}, vset, common.Hash{}, nil, nil, func(hash common.Hash) bool {
+		}, vset, common.Hash{}, nil, nil, nil, func(hash common.Hash) bool {
 			return false
 		})
 		core.valSet = vset

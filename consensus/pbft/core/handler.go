@@ -117,7 +117,6 @@ func (c *core) handleEvents() {
 			if !ok {
 				return
 			}
-			c.backend.OnTimeout()
 			c.handleTimeoutMsg()
 
 		case event, ok := <-c.finalCommittedSub.Chan():
@@ -209,6 +208,8 @@ func (c *core) handleCheckedMsg(msg *message, src pbft.Validator) (bool, error) 
 }
 
 func (c *core) handleTimeoutMsg() {
+	// adjust block sealing txs on timeout
+	c.backend.OnTimeout()
 	// If we're not waiting for round change yet, we can try to catch up
 	// the max round with F+1 round change message. We only need to catch up
 	// if the max round is larger than current round.

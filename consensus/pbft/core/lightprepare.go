@@ -29,34 +29,11 @@ func (c *core) sendLightPrepare(request *pbft.Request, curView *pbft.View) {
 		Msg:  lightMsg,
 	}, false)
 
-	//record = time.Now()
-	//// re-encode proposal completely
-	//completeMsg, err := Encode(&pbft.Preprepare{
-	//	View:     curView,
-	//	Proposal: request.Proposal,
-	//})
-	//if err != nil {
-	//	logger.Error("Failed to encode", "view", curView)
-	//	return
-	//}
-	//log.Report("sendLightPrepare Encode", "cost", time.Since(record))
-	//
-	//// post full pre-prepare msg
-	//msg, err := c.finalizeMessage(&message{
-	//	Code: msgPreprepare,
-	//	Msg:  completeMsg,
-	//})
-	//if err != nil {
-	//	logger.Error("Failed to finalize message", "msg", msg, "err", err)
-	//	return
-	//}
-	//c.backend.Post(msg)
-
 	// handle full proposal by self
 	c.handlePrepare2(&pbft.Preprepare{
 		View:     curView,
 		Proposal: request.Proposal,
-	})
+	}, nil, nil)
 }
 
 // The first stage handle light Pre-prepare.
@@ -65,8 +42,6 @@ func (c *core) sendLightPrepare(request *pbft.Request, curView *pbft.View) {
 func (c *core) handleLightPrepare(msg *message, src pbft.Validator) error {
 	logger := c.logger.New("from", src, "state", c.state)
 	c.prepareTimestamp = time.Now()
-
-	log.Report("> handleLightPrepare")
 
 	var preprepare *pbft.LightPreprepare
 	err := msg.Decode(&preprepare)
@@ -84,8 +59,17 @@ func (c *core) handleLightPrepare(msg *message, src pbft.Validator) error {
 	if duration, err := c.backend.Verify(preprepare.Proposal, true, false); err != nil {
 		// if it's a future block, we will handle it again after the duration
 		if err == consensus.ErrFutureBlock {
-			logger.Trace("Proposed block will be committed in the future", "err", err, "duration", duration)
-			// wait until block timestamp at commit stage
+			if duration > time.Second*time.Duration(c.config.BlockPeriod) {
+				logger.Warn("Proposed block will be committed in the future", "err", err, "duration", duration)
+				// wait until block timestamp at commit stage
+				c.stopFuturePreprepareTimer()
+				c.futurePreprepareTimer = time.AfterFunc(duration, func() {
+					c.sendEvent(backlogEvent{
+						src: src,
+						msg: msg,
+					})
+				})
+			}
 		} else {
 			logger.Warn("Failed to verify light proposal header", "err", err, "duration", duration)
 			c.sendNextRoundChange()
