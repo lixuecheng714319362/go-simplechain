@@ -96,6 +96,10 @@ type testTxPool struct {
 	lock sync.RWMutex // Protects the transaction pool
 }
 
+func (p *testTxPool) Stats() (int, int) {
+	panic("implement me")
+}
+
 func (p *testTxPool) AddRemoteSync(*types.Transaction) error {
 	panic("implement me")
 }

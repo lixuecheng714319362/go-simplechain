@@ -117,6 +117,7 @@ type txPool interface {
 	SenderFromBlocks(types.Blocks) error
 
 	Signer() types.Signer
+	Stats() (int, int)
 }
 
 // statusData63 is the network packet for the status message for eth/63.

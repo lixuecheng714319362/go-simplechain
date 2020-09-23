@@ -58,12 +58,12 @@ const (
 	defaultTxSyncPeriod    = time.Millisecond * 100
 	//parallelTasks          = 10000
 	//parallelThreads        = 100
+	broadcastTxLimit = 1000
 )
 
 var (
-	syncChallengeTimeout       = 15 * time.Second // Time allowance for a node to reply to the sync progress challenge
-	broadcastTxLimit     int64 = 1000
-	txCodec                    = &types.OffsetTransactionsCodec{}
+	syncChallengeTimeout = 15 * time.Second // Time allowance for a node to reply to the sync progress challenge
+	txCodec              = &types.OffsetTransactionsCodec{}
 )
 
 func errResp(code errCode, format string, v ...interface{}) error {
@@ -96,10 +96,11 @@ type ProtocolManager struct {
 	whitelist map[uint64]common.Hash
 
 	// channels for fetcher, syncer, txsyncLoop
-	newPeerCh   chan *peer
-	txsyncCh    chan *txsync
-	quitSync    chan struct{}
-	noMorePeers chan struct{}
+	newPeerCh    chan *peer
+	txsyncCh     chan *txsync
+	txsyncTaskCh chan *txsyncTask
+	quitSync     chan struct{}
+	noMorePeers  chan struct{}
 
 	// wait group is used for graceful shutdowns during downloading
 	// and processing
@@ -387,7 +388,7 @@ func (pm *ProtocolManager) handle(p *peer) error {
 	}
 	// Propagate existing transactions. new transactions appearing
 	// after this will be sent via broadcasts.
-	//pm.syncTransactions(p) TODO(important): syncTransactions
+	pm.syncTransactions(p) // TODO(important): syncTransactions
 
 	// If we have a trusted CHT, reject all peers below that (avoid fast sync eclipse)
 	if pm.checkpointHash != (common.Hash{}) {

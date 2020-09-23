@@ -24,7 +24,7 @@ import (
 var (
 	// msgPriority is defined for calculating processing priority to speedup consensus
 	// msgPreprepare > msgCommit > msgPrepare
-	msgPriority = map[uint64]int{
+	msgPriority = map[MsgCode]int{
 		msgPreprepare: 1,
 		msgCommit:     2,
 		msgPrepare:    3,
@@ -35,7 +35,7 @@ var (
 // return errInvalidMessage if the message is invalid
 // return errFutureMessage if the message view is larger than current view
 // return errOldMessage if the message view is smaller than current view
-func (c *core) checkMessage(msgCode uint64, view *pbft.View) error {
+func (c *core) checkMessage(msgCode MsgCode, view *pbft.View) error {
 	if view == nil || view.Sequence == nil || view.Round == nil {
 		return errInvalidMessage
 	}
@@ -195,7 +195,7 @@ func (c *core) processBacklog() {
 	}
 }
 
-func toPriority(msgCode uint64, view *pbft.View) int64 {
+func toPriority(msgCode MsgCode, view *pbft.View) int64 {
 	if msgCode == msgRoundChange {
 		// For msgRoundChange, set the message priority based on its sequence
 		return -int64(view.Sequence.Uint64() * 1000)

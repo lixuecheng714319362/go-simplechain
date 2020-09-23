@@ -317,9 +317,6 @@ func (pool *TxPool) loop() {
 		case ev := <-pool.chainHeadCh:
 			if ev.Block != nil {
 				pool.mu.Lock()
-				//if pool.chainconfig.IsHomestead(ev.Block.Number()) {
-				//	pool.homestead = true
-				//}
 				pool.reset(head.Header(), ev.Block, ev.Block.Header())
 				head = ev.Block
 
@@ -383,12 +380,10 @@ func (pool *TxPool) lockedReset(oldHead, newHead *types.Header) {
 // reset retrieves the current state of the blockchain and ensures the content
 // of the transaction pool is valid with regard to the chain state.
 func (pool *TxPool) reset(oldHead *types.Header, newBlock *types.Block, newHead *types.Header) {
-	//log.Error("[debug] txpool.reset", "order", 2)
 	// If we're reorging an old state, reinject all dropped transactions
 	var reinject, recache types.Transactions
 
 	if oldHead != nil && oldHead.Hash() != newHead.ParentHash {
-		log.Warn("txpool reset", "old", oldHead.Hash(), "new", newHead.Hash())
 		// If the reorg is too deep, avoid doing it (will happen during fast sync)
 		oldNum := oldHead.Number.Uint64()
 		newNum := newHead.Number.Uint64()
@@ -418,6 +413,9 @@ func (pool *TxPool) reset(oldHead *types.Header, newBlock *types.Block, newHead 
 					log.Error("Unrooted new chain seen by tx pool", "block", newHead.Number, "hash", newHead.Hash())
 					return
 				}
+			}
+			if rem.Hash() != add.Hash() {
+				log.Warn("blockchain reorganized", "number", rem.NumberU64(), "old", rem.Hash(), "new", add.Hash())
 			}
 			for rem.Hash() != add.Hash() {
 				discarded = append(discarded, rem.Transactions()...)
@@ -457,26 +455,11 @@ func (pool *TxPool) reset(oldHead *types.Header, newBlock *types.Block, newHead 
 	pool.blockTxCheck.InsertCaches(recache) // recache blockTxCheck
 	pool.addTxs(reinject, false, true)
 
-	// validate the pool of pending transactions, this will remove
-	// any transactions that have been included in the block or
-	// have been invalidated because of another transaction (e.g.
-	// higher gas price)
-	//pool.demoteUnexecutables()
 	pool.blockTxCheck.UpdateCache(false)
 	if newBlock != nil {
 		pool.RemoveBlockKnownTxs(newBlock)
 		pool.txChecker.DeleteCaches(newBlock.Transactions())
 	}
-
-	// Update all accounts to the latest known pending nonce
-	/*for _, tx := range pool.Pending() {
-		txs := list.Flatten() // Heavy but will be cached and is needed by the miner anyway
-		pool.pendingState.SetNonce(addr, txs[len(txs)-1].Nonce()+1)
-		pool.txChecker.InsertCache(tx)
-	}*/
-	// Check the queue and move transactions over to the pending if possible
-	// or remove those that have become invalid
-	//pool.promoteExecutables(nil)
 }
 
 // Stop terminates the transaction pool.
@@ -533,11 +516,9 @@ func (pool *TxPool) SetGasPrice(price *big.Int) {
 }
 
 func (pool *TxPool) Nonce(addr common.Address) uint64 {
-	//pool.mu.RLock()
-	//defer pool.mu.RUnlock()
-	//
-	//return pool.sy.get(addr)
-	return 0 //TODO(important)：Nonce
+	pool.mu.RLock()
+	defer pool.mu.RUnlock()
+	return pool.currentState.GetNonce(addr)
 }
 
 // Stats retrieves the current pool stats, namely the number of pending and the
@@ -565,17 +546,7 @@ func (pool *TxPool) Content() (map[common.Address]types.Transactions, map[common
 }
 
 func (pool *TxPool) SyncLimit(limit int) types.Transactions {
-	size := pool.queue.Size()
-	if size == 0 {
-		return nil
-	}
-
-	invalid := make(map[common.Hash]struct{})
-	ret := make(types.Transactions, 0)
-	pool.queue.Range(func(tx *types.Transaction) bool {
-		if _, ok := invalid[tx.Hash()]; ok {
-			return true
-		}
+	return pool.limit(limit, func(tx *types.Transaction, invalid map[common.Hash]struct{}) bool {
 		if err := pool.blockTxCheck.CheckBlockLimit(tx); err != nil {
 			log.Trace("Pending block limit check failed")
 			invalid[tx.Hash()] = struct{}{}
@@ -584,39 +555,17 @@ func (pool *TxPool) SyncLimit(limit int) types.Transactions {
 		if tx.IsSynced() {
 			return true
 		}
-		if !tx.IsLocal() { //todo: for test
+		if !tx.IsLocal() {
 			return true
 		}
-		ret = append(ret, tx)
-		//tx.SetSynced(true)
-		return len(ret) < limit
+		return false
 	})
-
-	go pool.RemoveInvalidTxs(invalid)
-	return ret
 }
 
-// Pending retrieves all currently processable transactions, grouped by origin
-// account and sorted by nonce. The returned transaction set is a copy and can be
-// freely modified by calling code.
 func (pool *TxPool) PendingLimit(limit int) types.Transactions {
-	//log.Error("[debug] txpool.Pending", "order", 1)
-	size := pool.queue.Size()
-	if size == 0 {
-		return nil
-	}
-
-	pending := make(types.Transactions, 0, size)
-	invalid := make(map[common.Hash]struct{})
-	duplicate := 0
-
-	pool.queue.Range(func(tx *types.Transaction) bool {
-		if _, ok := invalid[tx.Hash()]; ok {
-			return true
-		}
+	return pool.limit(limit, func(tx *types.Transaction, invalid map[common.Hash]struct{}) bool {
 		if !pool.blockTxCheck.OK(tx, false) {
 			log.Trace("Pending check failed, duplicate tx")
-			duplicate++
 			return true
 		}
 		if err := pool.blockTxCheck.CheckBlockLimit(tx); err != nil {
@@ -624,16 +573,35 @@ func (pool *TxPool) PendingLimit(limit int) types.Transactions {
 			invalid[tx.Hash()] = struct{}{}
 			return true
 		}
+		return false
+	})
+}
 
-		pending = append(pending, tx)
+func (pool *TxPool) limit(limitNum int, condition func(tx *types.Transaction, invalid map[common.Hash]struct{}) bool) types.Transactions {
+	if pool.queue.Size() == 0 {
+		return nil
+	}
 
-		return len(pending) < limit
+	invalid := make(map[common.Hash]struct{})
+	ret := make(types.Transactions, 0)
+	checkFail := 0
+
+	pool.queue.Range(func(tx *types.Transaction) bool {
+		if _, ok := invalid[tx.Hash()]; ok {
+			return true
+		}
+		if condition(tx, invalid) {
+			checkFail++
+			return true
+		}
+		ret = append(ret, tx)
+		return len(ret) < limitNum
 	})
 
-	log.Error("PendingLimit transactions", "duplicate", duplicate, "expired", len(invalid))
 	go pool.RemoveInvalidTxs(invalid)
+	log.Trace("Limit transactions", "fetch", ret.Len(), "checkFail", checkFail, "expired", len(invalid))
 
-	return pending
+	return ret
 }
 
 func (pool *TxPool) Pending() (map[common.Address]types.Transactions, error) {

@@ -93,6 +93,18 @@ func (r *TreeRouter) MyIndex() int {
 	return r.myIndex
 }
 
+func (r *TreeRouter) IsValidator(addr common.Address) bool {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	for _, val := range r.currentValidators {
+		if val == addr {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *TreeRouter) Reset(blockNumber uint64, currentValidators []common.Address, myIndex int) {
 	r.lock.Lock()
 	defer r.lock.Unlock()

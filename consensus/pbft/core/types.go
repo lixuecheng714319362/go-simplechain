@@ -79,7 +79,28 @@ func (s State) Cmp(y State) int {
 	return 0
 }
 
-type MsgCode = uint64
+type MsgCode uint8
+
+func (code MsgCode) String() string {
+	switch code {
+	case msgPreprepare:
+		return "Preprepare"
+	case msgPrepare:
+		return "Prepare"
+	case msgCommit:
+		return "Commit"
+	case msgRoundChange:
+		return "RoundChange"
+	case msgLightPreprepare:
+		return "LightPreprepare"
+	case msgGetMissedTxs:
+		return "GetMissedTxs"
+	case msgMissedTxs:
+		return "MissedTxs"
+	default:
+		return "unknown"
+	}
+}
 
 const (
 	msgPreprepare  = MsgCode(0x00)
@@ -92,12 +113,12 @@ const (
 	msgMissedTxs       = MsgCode(0x12)
 )
 
-func isLightProposalMsg(code uint64) bool {
+func isLightProposalMsg(code MsgCode) bool {
 	return code >= msgLightPreprepare && code <= msgMissedTxs
 }
 
 type message struct {
-	Code          uint64
+	Code          MsgCode
 	Msg           []byte
 	Address       common.Address
 	Signature     []byte
@@ -135,7 +156,7 @@ func (m *message) EncodeRLP(w io.Writer) error {
 // DecodeRLP implements rlp.Decoder, and load the consensus fields from a RLP stream.
 func (m *message) DecodeRLP(s *rlp.Stream) error {
 	var msg struct {
-		Code          uint64
+		Code          MsgCode
 		Msg           []byte
 		Address       common.Address
 		Signature     []byte

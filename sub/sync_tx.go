@@ -65,21 +65,6 @@ func (pm *ProtocolManager) addRemoteTxsByRouter2TxPool(peer *peer, txr *Transact
 		}
 	})
 
-	//var wg sync.WaitGroup
-	//for i := range txr.Txs {
-	//	// copy reference from range iterator
-	//	index, tx := i, txr.Txs[i]
-	//	// remote txs are already synced
-	//	tx.SetSynced(true)
-	//	wg.Add(1)
-	//	core.SenderParallel.Put(func() error {
-	//		_, errs[index] = types.Sender(pm.txpool.Signer(), tx)
-	//		wg.Done()
-	//		return nil
-	//	}, nil)
-	//}
-	//wg.Wait()
-
 	senderCost := time.Since(start)
 	addTime := time.Now()
 
@@ -98,7 +83,7 @@ func (pm *ProtocolManager) addRemoteTxsByRouter2TxPool(peer *peer, txr *Transact
 
 // BroadcastTxs will propagate a batch of transactions to all peers which are not known to
 // already have the given transaction.
-func (pm *ProtocolManager) BroadcastTxs(txs types.Transactions) {
+func (pm *ProtocolManager) BroadcastTxs(txs types.Transactions) bool {
 	// FIXME include this again: peers = peers[:int(math.Sqrt(float64(len(peers))))]
 	txset, routeIndex := pm.CalcTxsWithPeerSet(txs)
 	for peer, txs := range txset {
@@ -108,6 +93,7 @@ func (pm *ProtocolManager) BroadcastTxs(txs types.Transactions) {
 			peer.AsyncSendTransactionsByRouter(&TransactionsWithRoute{Txs: txs, RouteIndex: uint32(routeIndex)})
 		}
 	}
+	return len(txset) > 0
 }
 
 func (pm *ProtocolManager) CalcTxsWithPeerSet(txs types.Transactions) (map[*peer]types.Transactions, int) {
@@ -163,43 +149,18 @@ func (pm *ProtocolManager) calcTxsWithPeerSetByRouter(txs types.Transactions) (m
 
 // txCollectLoop collect txs from the txsCh
 func (pm *ProtocolManager) txCollectLoop() {
-	//lastTime := time.Now()
-	//var (
-	//	total     int
-	//	totalCost time.Duration
-	//	lastTime  time.Time
-	//)
-
-	// tx collect loop meter and report
-	//testReport := func(txs types.Transactions) {
-	//	if !lastTime.IsZero() {
-	//		total += len(txs)
-	//		totalCost += time.Since(lastTime)
-	//	}
-	//	lastTime = time.Now()
-	//
-	//	if totalCost > time.Second && len(txs) > 0 {
-	//		b, _ := rlp.EncodeToBytes(txs[0])
-	//		log.Info("[report] txCollectLoop", "avgCost", totalCost/time.Duration(total), "size", common.StorageSize(len(b)).String())
-	//		total, totalCost = 0, 0
-	//		lastTime = time.Now()
-	//	}
-	//}
-
 	for {
 		select {
 		case ev := <-pm.txsCh:
-			//newTransactions := atomic.AddInt64(&pm.newTransactions, int64(len(ev.Txs)))
 			pm.newTxLock.Lock()
 			for _, tx := range ev.Txs {
 				if !tx.IsSynced() {
 					pm.newTransactions = append(pm.newTransactions, ev.Txs...)
 				}
 			}
-			if pm.newTransactions.Len() >= int(broadcastTxLimit) {
+			if pm.newTransactions.Len() >= broadcastTxLimit {
 				pm.BroadcastTxs(pm.newTransactions)
 				pm.newTransactions = pm.newTransactions[:0]
-				//TODO: adjust sync period
 			}
 			pm.newTxLock.Unlock()
 
@@ -231,11 +192,11 @@ func (pm *ProtocolManager) txBroadcastLoop() {
 		case <-pm.txSyncTimer.C:
 			var txs types.Transactions
 			pm.newTxLock.Lock()
-			if pm.newTransactions.Len() > int(broadcastTxLimit) {
+			if pm.newTransactions.Len() > broadcastTxLimit {
 				txs = pm.newTransactions[:broadcastTxLimit]
 				pm.newTransactions = pm.newTransactions[broadcastTxLimit:]
 			} else {
-				txs = append(pm.newTransactions, pm.txpool.SyncLimit(int(broadcastTxLimit)-pm.newTransactions.Len())...)
+				txs = append(pm.newTransactions, pm.txpool.SyncLimit(broadcastTxLimit-pm.newTransactions.Len())...)
 				pm.newTransactions = pm.newTransactions[:0]
 			}
 			pm.newTxLock.Unlock()
@@ -259,7 +220,7 @@ func (pm *ProtocolManager) dumpTxs(txs types.Transactions) {
 	select {
 	case ev := <-pm.txsCh:
 		txs = append(txs, ev.Txs...)
-		if len(txs) >= int(broadcastTxLimit) {
+		if len(txs) >= broadcastTxLimit {
 			return
 		}
 		pm.dumpTxs(txs)
