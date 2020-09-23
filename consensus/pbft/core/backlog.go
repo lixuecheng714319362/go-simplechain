@@ -84,6 +84,7 @@ func (c *core) checkMessage(msgCode uint64, view *pbft.View) error {
 func (c *core) storeBacklog(msg *message, src pbft.Validator) {
 	logger := c.logger.New("from", src, "state", c.state)
 
+	// dont backlog message from self
 	if src.Address() == c.Address() {
 		logger.Warn("Backlog from self")
 		return

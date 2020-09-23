@@ -40,7 +40,6 @@ func (w *worker) Execute(block *types.Block) (*types.Block, error) {
 	}
 	statedb, err := state.New(parent.Root, w.chain.StateCache())
 	if err != nil {
-		//TODO: handle statedb error
 		return nil, err
 	}
 
@@ -51,7 +50,6 @@ func (w *worker) Execute(block *types.Block) (*types.Block, error) {
 
 	block, env, err := w.executeBlock(block, statedb)
 	if err != nil {
-		//TODO: handle execute error
 		return nil, err
 	}
 

@@ -81,10 +81,6 @@ const (
 
 	// staleThreshold is the maximum depth of the acceptable stale block.
 	staleThreshold = 7
-
-	// for subchain-mode txpool
-	limitMaxBlockTxs = 15000
-	limitMinBlockTxs = 1
 )
 
 // environment is the worker's current environment and holds all of the current state information.

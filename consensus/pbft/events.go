@@ -21,7 +21,7 @@ type RequestEvent struct {
 	Proposal Proposal
 }
 
-// MessageEvent is posted for Istanbul engine communication
+// MessageEvent is posted for pbft engine communication
 type MessageEvent struct {
 	Payload []byte
 }

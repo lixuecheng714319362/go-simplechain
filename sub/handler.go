@@ -387,7 +387,7 @@ func (pm *ProtocolManager) handle(p *peer) error {
 	}
 	// Propagate existing transactions. new transactions appearing
 	// after this will be sent via broadcasts.
-	//pm.syncTransactions(p) TODO: syncTransactions
+	//pm.syncTransactions(p) TODO(important): syncTransactions
 
 	// If we have a trusted CHT, reject all peers below that (avoid fast sync eclipse)
 	if pm.checkpointHash != (common.Hash{}) {

@@ -131,6 +131,35 @@ func (sb *backend) Broadcast(valSet pbft.ValidatorSet, sender common.Address, pa
 	return nil
 }
 
+func (sb *backend) BroadcastMsg(ps map[common.Address]consensus.Peer, hash common.Hash, payload []byte) error {
+	sb.knownMessages.Add(hash, true)
+
+	for addr, p := range ps {
+		ms, ok := sb.recentMessages.Get(addr)
+		var m *lru.ARCCache
+		if ok {
+			m, _ = ms.(*lru.ARCCache)
+			if _, k := m.Get(hash); k {
+				// This peer had this event, skip it
+				continue
+			}
+		} else {
+			m, _ = lru.NewARC(inmemoryMessages)
+		}
+
+		m.Add(hash, true)
+		sb.recentMessages.Add(addr, m)
+
+		go func(peer consensus.Peer) {
+			if err := peer.Send(PbftMsg, payload); err != nil {
+				log.Error("send PbftMsg failed", "error", err.Error())
+			}
+		}(p)
+	}
+
+	return nil
+}
+
 // Post send to self
 func (sb *backend) Post(payload []byte) {
 	msg := pbft.MessageEvent{
@@ -303,6 +332,31 @@ func (sb *backend) Commit(conclusion pbft.Conclusion, commitSeals [][]byte) erro
 	sb.logger.Warn("Committed new pbft block", reportCtx...)
 
 	return nil
+}
+
+func (sb *backend) GetForwardNodes(valList pbft.Validators) (map[common.Address]consensus.Peer, []common.Address) {
+	var (
+		peers        map[common.Address]consensus.Peer
+		forwardNodes []common.Address
+	)
+
+	targets := make(map[common.Address]bool)
+	for _, val := range valList {
+		if val.Address() != sb.Address() {
+			targets[val.Address()] = true
+		}
+	}
+
+	if sb.broadcaster != nil && len(targets) > 0 {
+		peers = sb.broadcaster.FindPeers(targets)
+		for addr, ok := range targets {
+			if ok && peers[addr] == nil {
+				forwardNodes = append(forwardNodes, addr)
+			}
+		}
+	}
+
+	return peers, forwardNodes
 }
 
 // EventMux implements pbft.Backend.EventMux

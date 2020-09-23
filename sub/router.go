@@ -86,8 +86,9 @@ func (r *TreeRouter) BlockNumber() uint64 {
 func (r *TreeRouter) MyIndex() int {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
-	if r.myIndex < 0 {
-		return rand.Intn(len(r.currentValidators))
+	lenValidator := len(r.currentValidators)
+	if r.myIndex < 0 && lenValidator > 0 {
+		return rand.Intn(lenValidator)
 	}
 	return r.myIndex
 }

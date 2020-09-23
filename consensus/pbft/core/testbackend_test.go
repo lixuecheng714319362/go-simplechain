@@ -18,6 +18,7 @@ package core
 
 import (
 	"crypto/ecdsa"
+	"github.com/simplechain-org/go-simplechain/consensus"
 	"github.com/simplechain-org/go-simplechain/core/types"
 	"math/big"
 	"time"
@@ -49,6 +50,19 @@ type testSystemBackend struct {
 	db      ethdb.Database
 	filled  bool
 	txpool  *testSystemTxPool
+}
+
+func (self *testSystemBackend) BroadcastMsg(ps map[common.Address]consensus.Peer, hash common.Hash, message []byte) error {
+	testLogger.Info("enqueuing a message...", "address", self.Address())
+	self.sentMsgs = append(self.sentMsgs, message)
+	self.sys.queuedMessage <- pbft.MessageEvent{
+		Payload: message,
+	}
+	return nil
+}
+
+func (self *testSystemBackend) GetForwardNodes(validators pbft.Validators) (map[common.Address]consensus.Peer, []common.Address) {
+	return nil, nil
 }
 
 func (self *testSystemBackend) FillLightProposal(proposal pbft.LightProposal) (bool, []types.MissedTx, error) {

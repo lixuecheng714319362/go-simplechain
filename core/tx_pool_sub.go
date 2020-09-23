@@ -86,7 +86,7 @@ var (
 	//statsReportInterval = 8 * time.Second // Time interval to report transaction pool stats
 )
 
-//TODO: tx monitor
+//TODO(important): tx monitor
 //var (
 //	// Metrics for the pending pool
 //	pendingDiscardCounter   = metrics.NewRegisteredCounter("txpool/pending/discard", nil)
@@ -265,7 +265,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 
 	// If local transactions and journaling is enabled, load from disk
 	config.Journal = ""
-	if !config.NoLocals && config.Journal != "" { //TODO: set tx journal to persist local rpc tx
+	if !config.NoLocals && config.Journal != "" { //TODO(important): set tx journal to persist local rpc tx
 		//pool.journal = newTxJournal(config.Journal)
 		//
 		//if err := pool.journal.load(pool.AddLocals); err != nil {
@@ -489,9 +489,9 @@ func (pool *TxPool) Stop() {
 	//pool.parallel.Stop()
 	pool.wg.Wait()
 
-	//if pool.journal != nil {
-	//	pool.journal.close()
-	//}
+	if pool.journal != nil {
+		pool.journal.close()
+	}
 	log.Info("Transaction pool stopped")
 }
 
@@ -510,8 +510,7 @@ func (pool *TxPool) GasPrice() *big.Int {
 	pool.mu.RLock()
 	defer pool.mu.RUnlock()
 
-	//return new(big.Int).Set(pool.gasPrice)
-	return big.NewInt(0)
+	return new(big.Int).Set(pool.gasPrice)
 }
 
 // SetGasPrice updates the minimum price required by the transaction pool for a
@@ -520,10 +519,16 @@ func (pool *TxPool) SetGasPrice(price *big.Int) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	//pool.gasPrice = price
-	//for _, tx := range pool.priced.Cap(price, pool.locals) {
-	//	pool.removeTx(tx.Hash(), false)
-	//}
+	pool.gasPrice = price
+
+	invalid := make(map[common.Hash]struct{})
+	pool.queue.Range(func(tx *types.Transaction) bool {
+		if tx.GasPrice().Cmp(price) < 0 {
+			invalid[tx.Hash()] = struct{}{}
+		}
+		return true
+	})
+	pool.RemoveInvalidTxs(invalid)
 	log.Info("Transaction pool price threshold updated", "price", price)
 }
 
@@ -532,7 +537,7 @@ func (pool *TxPool) Nonce(addr common.Address) uint64 {
 	//defer pool.mu.RUnlock()
 	//
 	//return pool.sy.get(addr)
-	return 0 //TODO：Nonce
+	return 0 //TODO(important)：Nonce
 }
 
 // Stats retrieves the current pool stats, namely the number of pending and the
@@ -625,7 +630,7 @@ func (pool *TxPool) PendingLimit(limit int) types.Transactions {
 		return len(pending) < limit
 	})
 
-	log.Trace("PendingLimit transactions", "duplicate", duplicate, "expired", len(invalid))
+	log.Error("PendingLimit transactions", "duplicate", duplicate, "expired", len(invalid))
 	go pool.RemoveInvalidTxs(invalid)
 
 	return pending

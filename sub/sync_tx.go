@@ -143,7 +143,12 @@ func (pm *ProtocolManager) calcTxsWithPeerSetByRouter(txs types.Transactions) (m
 		validators, index := pm.engine.(consensus.Predictable).CurrentValidators()
 		txRouter.Reset(current, validators, index)
 	}
+
 	routeIndex := txRouter.MyIndex()
+	// no validators exist
+	if routeIndex < 0 {
+		return nil, -1
+	}
 	selectedNodes := txRouter.SelectNodes(pm.peers.PeerWithAddresses(), routeIndex, true)
 
 	for _, tx := range txs {

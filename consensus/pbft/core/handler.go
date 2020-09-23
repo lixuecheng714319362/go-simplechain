@@ -1,18 +1,18 @@
-// Copyright 2017 The go-ethereum Authors
-// This file is part of the go-ethereum library.
+// Copyright 2020 The go-simplechain Authors
+// This file is part of the go-simplechain library.
 //
-// The go-ethereum library is free software: you can redistribute it and/or modify
+// The go-simplechain library is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// The go-ethereum library is distributed in the hope that it will be useful,
+// The go-simplechain library is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+// along with the go-simplechain library. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
@@ -97,9 +97,9 @@ func (c *core) handleEvents() {
 					c.storeRequestMsg(r)
 				}
 			case pbft.MessageEvent:
-				if sender, forward, err := c.handleMsg(ev.Payload); forward && err == nil {
-					//c.backend.Gossip(c.valSet, ev.Payload)
-					c.backend.Guidance(c.valSet, sender, ev.Payload)
+				msg, src, forward, err := c.handleMsg(ev.Payload)
+				if forward && err == nil {
+					c.forward(msg, src)
 				}
 			case backlogEvent:
 				// No need to check signature for internal messages
@@ -136,26 +136,26 @@ func (c *core) sendEvent(ev interface{}) {
 	c.backend.EventMux().Post(ev)
 }
 
-func (c *core) handleMsg(payload []byte) (common.Address, bool, error) {
+func (c *core) handleMsg(payload []byte) (*message, pbft.Validator, bool, error) {
 	logger := c.logger.New()
 
 	// Decode message and check its signature
 	msg := new(message)
 	if err := msg.FromPayload(payload, c.validateFn); err != nil {
 		logger.Error("Failed to decode message from payload", "err", err)
-		return common.Address{}, false, err
+		return nil, nil, false, err
 	}
 
 	// Only accept message if the address is valid
 	_, src := c.valSet.GetByAddress(msg.Address)
 	if src == nil {
 		logger.Error("Invalid address in message", "msg", msg)
-		return msg.Address, false, pbft.ErrUnauthorizedAddress
+		return msg, src, false, pbft.ErrUnauthorizedAddress
 	}
 
 	forward, err := c.handleCheckedMsg(msg, src)
 
-	return msg.Address, forward, err
+	return msg, src, forward, err
 }
 
 func (c *core) handleCheckedMsg(msg *message, src pbft.Validator) (bool, error) {

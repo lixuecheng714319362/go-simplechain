@@ -1,11 +1,11 @@
 package core
 
 import (
-	"github.com/simplechain-org/go-simplechain/log"
-	time "time"
+	"time"
 
 	"github.com/simplechain-org/go-simplechain/consensus"
 	"github.com/simplechain-org/go-simplechain/consensus/pbft"
+	"github.com/simplechain-org/go-simplechain/log"
 )
 
 func (c *core) sendLightPrepare(request *pbft.Request, curView *pbft.View) {

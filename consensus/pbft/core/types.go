@@ -19,7 +19,9 @@ package core
 import (
 	"bytes"
 	"fmt"
+	"github.com/simplechain-org/go-simplechain/consensus/pbft"
 	"io"
+	"sync/atomic"
 
 	"github.com/simplechain-org/go-simplechain/common"
 	"github.com/simplechain-org/go-simplechain/rlp"
@@ -100,6 +102,24 @@ type message struct {
 	Address       common.Address
 	Signature     []byte
 	CommittedSeal []byte
+
+	ForwardNodes []common.Address
+	hash         atomic.Value
+}
+
+func (m *message) Hash() common.Hash {
+	if hash := m.hash.Load(); hash != nil {
+		return hash.(common.Hash)
+	}
+	v := pbft.RLPHash([]interface{}{
+		m.Code,
+		m.Msg,
+		m.Address,
+		m.Signature,
+		m.CommittedSeal,
+	})
+	m.hash.Store(v)
+	return v
 }
 
 // ==============================================
@@ -108,7 +128,8 @@ type message struct {
 
 // EncodeRLP serializes m into the Ethereum RLP format.
 func (m *message) EncodeRLP(w io.Writer) error {
-	return rlp.Encode(w, []interface{}{m.Code, m.Msg, m.Address, m.Signature, m.CommittedSeal})
+	//return rlp.Encode(w, []interface{}{m.Code, m.Msg, m.Address, m.Signature, m.CommittedSeal})
+	return rlp.Encode(w, []interface{}{m.Code, m.Msg, m.Address, m.Signature, m.CommittedSeal, m.ForwardNodes})
 }
 
 // DecodeRLP implements rlp.Decoder, and load the consensus fields from a RLP stream.
@@ -119,12 +140,15 @@ func (m *message) DecodeRLP(s *rlp.Stream) error {
 		Address       common.Address
 		Signature     []byte
 		CommittedSeal []byte
+
+		ForwardNodes []common.Address
 	}
 
 	if err := s.Decode(&msg); err != nil {
 		return err
 	}
 	m.Code, m.Msg, m.Address, m.Signature, m.CommittedSeal = msg.Code, msg.Msg, msg.Address, msg.Signature, msg.CommittedSeal
+	m.ForwardNodes = msg.ForwardNodes
 	return nil
 }
 
@@ -177,7 +201,21 @@ func (m *message) Decode(val interface{}) error {
 }
 
 func (m *message) String() string {
+	if m.ForwardNodes != nil {
+		return fmt.Sprintf("{Code: %v, Address: %v, Forwards: [ %s]}", m.Code, m.Address.String(), forwards(m.ForwardNodes).String())
+	}
 	return fmt.Sprintf("{Code: %v, Address: %v}", m.Code, m.Address.String())
+}
+
+type forwards []common.Address
+
+func (s forwards) String() string {
+	var buf bytes.Buffer
+	for _, addr := range s {
+		buf.WriteString(addr.String())
+		buf.WriteString(" ")
+	}
+	return buf.String()
 }
 
 // ==============================================

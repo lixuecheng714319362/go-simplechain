@@ -64,6 +64,10 @@ func ParallelApplyTransactions(config *params.ChainConfig, bc ChainContext, coin
 		}
 
 		rs, logs, err := ParallelApplyTransaction(config, bc, gp, statedb, header, coinbase, usedGas, cfg, execIds)
+		if err != nil {
+			log.Error("ParallelApplyTransaction failed", "error", err)
+			return nil, nil, err
+		}
 		receipts = append(receipts, rs...) //TODO
 		coalescedLogs = append(coalescedLogs, logs...)
 	}

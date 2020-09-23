@@ -1,18 +1,18 @@
-// Copyright 2017 The go-ethereum Authors
-// This file is part of the go-ethereum library.
+// Copyright 2020 The go-simplechain Authors
+// This file is part of the go-simplechain library.
 //
-// The go-ethereum library is free software: you can redistribute it and/or modify
+// The go-simplechain library is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// The go-ethereum library is distributed in the hope that it will be useful,
+// The go-simplechain library is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+// along with the go-simplechain library. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
@@ -64,8 +64,8 @@ func New(backend pbft.Backend, config *pbft.Config) Engine {
 // ----------------------------------------------------------------------------
 
 const (
-	timeoutRate     = 1.1
-	maxRoundTimeout = 20
+	timeoutRate     = 1.3
+	maxRoundTimeout = 10
 )
 
 type core struct {
@@ -155,7 +155,7 @@ func (c *core) finalizeMessage(msg *message) ([]byte, error) {
 	return payload, nil
 }
 
-func (c *core) broadcast(msg *message, self bool) {
+func (c *core) _broadcast(msg *message, self bool) {
 	logger := c.logger.New("state", c.state)
 
 	payload, err := c.finalizeMessage(msg)
@@ -166,6 +166,29 @@ func (c *core) broadcast(msg *message, self bool) {
 
 	// Broadcast payload
 	if err = c.backend.Broadcast(c.valSet, msg.Address, payload); err != nil {
+		logger.Error("Failed to broadcast message", "msg", msg, "err", err)
+	}
+	// Post payload
+	if self {
+		c.backend.Post(payload)
+	}
+}
+
+func (c *core) broadcast(msg *message, self bool) {
+	logger := c.logger.New("state", c.state)
+
+	ps, nodes := c.backend.GetForwardNodes(c.valSet.List())
+	// finalize forward nodes too
+	msg.ForwardNodes = nodes
+	payload, err := c.finalizeMessage(msg)
+	if err != nil {
+		logger.Error("Failed to finalize message", "msg", msg, "err", err)
+		return
+	}
+
+	// Broadcast payload
+	if err = c.backend.BroadcastMsg(ps, msg.Hash(), payload); err != nil {
+		//if err = c.backend.Broadcast(c.valSet, msg.Address, payload); err != nil {
 		logger.Error("Failed to broadcast message", "msg", msg, "err", err)
 	}
 	// Post payload
@@ -187,6 +210,45 @@ func (c *core) send(msg *message, val pbft.Validators) {
 		logger.Error("Failed to send message", "msg", msg, "err", err)
 		return
 	}
+}
+
+func (c *core) forward(msg *message, src pbft.Validator) bool {
+	logger := c.logger.New("state", c.state, "from", src)
+
+	forwardNodes := msg.ForwardNodes
+	// no nodes need to forward, exit
+	if forwardNodes == nil {
+		return false
+	}
+	var forwardValidator pbft.Validators
+	for _, forward := range forwardNodes {
+		if i, val := c.valSet.GetByAddress(forward); i >= 0 {
+			forwardValidator = append(forwardValidator, val)
+		} else {
+			logger.Warn("invalid forward node", "address", forward)
+		}
+	}
+
+	ps, remainNodes := c.backend.GetForwardNodes(forwardValidator)
+	// no forward peers existed in protocol, exit
+	if ps == nil {
+		return false
+	}
+
+	// create message with new forwardNodes
+	msg.ForwardNodes = remainNodes
+	payload, err := msg.Payload()
+	if err != nil {
+		logger.Error("Failed to forward message", "msg", msg, "err", err)
+		return false
+	}
+
+	if err = c.backend.BroadcastMsg(ps, msg.Hash(), payload); err != nil {
+		logger.Error("Failed to forward message", "msg", msg, "err", err)
+		return false
+	}
+
+	return true
 }
 
 func (c *core) currentView() *pbft.View {
@@ -386,7 +448,7 @@ func (c *core) checkValidatorSignature(data []byte, sig []byte) (common.Address,
 }
 
 func (c *core) Confirmations() int {
-	c.logger.Trace("Confirmation Formula used ceil(2N/3)")
+	// Confirmation Formula used ceil(2N/3)
 	return int(math.Ceil(float64(2*c.valSet.Size()) / 3))
 }
 

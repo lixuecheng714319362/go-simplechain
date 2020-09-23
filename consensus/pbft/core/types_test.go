@@ -131,6 +131,7 @@ func testSubjectWithSignature(t *testing.T) {
 		Address:       address,
 		Signature:     expectedSig,
 		CommittedSeal: []byte{},
+		ForwardNodes:  []common.Address{},
 	}
 
 	msgPayload, err := m.Payload()

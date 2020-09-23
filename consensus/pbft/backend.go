@@ -17,6 +17,7 @@
 package pbft
 
 import (
+	"github.com/simplechain-org/go-simplechain/consensus"
 	"math/big"
 	"time"
 
@@ -36,11 +37,14 @@ type Backend interface {
 	// EventMux returns the event mux in backend
 	EventMux() *event.TypeMux
 
+	// Post post a message
+	Post(payload []byte)
+
 	// Broadcast sends a message to other validators by router
 	Broadcast(valSet ValidatorSet, sender common.Address, payload []byte) error
 
-	// Post post a message
-	Post(payload []byte)
+	// BroadcastMsg
+	BroadcastMsg(ps map[common.Address]consensus.Peer, hash common.Hash, payload []byte) error
 
 	// Send a message to the specific validators
 	SendMsg(val Validators, payload []byte) error
@@ -50,6 +54,9 @@ type Backend interface {
 
 	// Gossip sends a message to all validators (exclude self)
 	Gossip(valSet ValidatorSet, payload []byte)
+
+	// GetForwardNodes returns peers of validators, and forward node addresses
+	GetForwardNodes(Validators) (map[common.Address]consensus.Peer, []common.Address)
 
 	// Commit delivers an approved proposal to backend.
 	// The delivered proposal will be put into blockchain.

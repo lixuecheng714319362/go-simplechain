@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -162,6 +161,7 @@ func getBlockLimit(ctx context.Context, client *ethclient.Client, last uint64) u
 }
 
 var big1 = big.NewInt(1)
+var big1e20, _ = new(big.Int).SetString("100000000000000000000", 10)
 
 func throughputs(ctx context.Context, client *ethclient.Client, index int, privateKey *ecdsa.PrivateKey, fromAddress common.Address, nonces []uint64) {
 	gasLimit := uint64(21000 + (20+64)*68) // in units
@@ -198,7 +198,7 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 		nonce := nonces[0]
 
 		for i, s := range senders {
-			sendTransaction(ctx, signer, sender, nonce+uint64(i), blockLimit, crypto.PubkeyToAddress(s.PublicKey), big1, uint64(21000+(20+64)*68), gasPrice, nil, client)
+			sendTransaction(ctx, signer, sender, nonce+uint64(i), blockLimit, crypto.PubkeyToAddress(s.PublicKey), big1e20, uint64(21000+(20+64)*68), gasPrice, nil, client)
 		}
 	}
 
@@ -273,9 +273,6 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 		}
 	}
 }
-
-var records []common.Hash
-var recordsMu sync.Mutex
 
 func sendTransaction(ctx context.Context, signer types.Signer, key *ecdsa.PrivateKey, nonce, limit uint64,
 	toAddress common.Address, value *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte, client *ethclient.Client) {

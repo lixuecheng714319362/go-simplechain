@@ -19,7 +19,6 @@ package backend
 import (
 	"bytes"
 	"errors"
-	"github.com/simplechain-org/go-simplechain/common/math"
 	"math/big"
 	"math/rand"
 	"time"
@@ -27,6 +26,7 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/simplechain-org/go-simplechain/common"
 	"github.com/simplechain-org/go-simplechain/common/hexutil"
+	"github.com/simplechain-org/go-simplechain/common/math"
 	"github.com/simplechain-org/go-simplechain/consensus"
 	"github.com/simplechain-org/go-simplechain/consensus/pbft"
 	istanbulCore "github.com/simplechain-org/go-simplechain/consensus/pbft/core"
@@ -460,17 +460,7 @@ func (sb *backend) Seal(chain consensus.ChainReader, block *types.Block, results
 	//delay := time.Unix(int64(header.Time), 0).Sub(now())
 
 	go func() {
-		// TODO-U: seal immediately, wait at commit phase
-		// wait for the timestamp of header, use this to adjust the block period
-		//select {
-		//case <-time.After(delay):
-		//case <-stop:
-		//	results <- nil
-		//	return
-		//}
-
 		sb.sealStart = now()
-
 		// get the proposed block hash and clear it if the seal() is completed.
 		sb.sealMu.Lock()
 		//sb.proposedBlockHash = block.Hash()
@@ -655,14 +645,10 @@ func (sb *backend) snapshot(chain consensus.ChainReader, number uint64, hash com
 // panics. This is done to avoid accidentally using both forms (signature present
 // or not), which could be abused to produce different hashes for the same header.
 func sigHash(header *types.Header) (hash common.Hash) {
-	//hasher := sha3.NewLegacyKeccak256()
-	//
-	//rlp.Encode(hasher, types.PbftPendingHeader(header, false))
-	//hasher.Sum(hash[:0])
 	// Clean seal is required for calculating proposer seal.
 	sealHeader := types.PbftPendingHeader(header, false)
 	if sealHeader == nil {
-		return header.Hash() //TODO: if sealHeader is nil
+		return header.Hash()
 	}
 	return types.RlpPendingHeaderHash(sealHeader)
 }
@@ -674,8 +660,7 @@ func (sb *backend) SealHash(header *types.Header) common.Hash {
 
 // ecrecover extracts the account address from a signed header.
 func ecrecover(header *types.Header) (common.Address, error) {
-	//hash := header.Hash()
-	hash := header.PendingHash() //TODO-U: sealer use Hash or PendingHash ?
+	hash := header.PendingHash()
 	if addr, ok := recentAddresses.Get(hash); ok {
 		return addr.(common.Address), nil
 	}
