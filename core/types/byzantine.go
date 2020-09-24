@@ -87,10 +87,10 @@ func ExtractByzantineExtra(h *Header) (*ByzantineExtra, error) {
 	return istanbulExtra, nil
 }
 
-// IstanbulFilteredHeader returns a filtered header which some information (like seal, committed seals)
+// ByzantineFilteredHeader returns a filtered header which some information (like seal, committed seals)
 // are clean to fulfill the Istanbul hash rules. It returns nil if the extra-data cannot be
 // decoded/encoded by rlp.
-func IstanbulFilteredHeader(h *Header, keepSeal bool) *Header {
+func ByzantineFilteredHeader(h *Header, keepSeal bool) *Header {
 	newHeader := CopyHeader(h)
 	istanbulExtra, err := ExtractByzantineExtra(newHeader)
 	if err != nil {

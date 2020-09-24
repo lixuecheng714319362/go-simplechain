@@ -32,7 +32,6 @@ import (
 	"github.com/simplechain-org/go-simplechain/core/types"
 	"github.com/simplechain-org/go-simplechain/crypto"
 	"github.com/simplechain-org/go-simplechain/eth/downloader"
-	"github.com/simplechain-org/go-simplechain/eth/fetcher"
 	"github.com/simplechain-org/go-simplechain/ethdb"
 	"github.com/simplechain-org/go-simplechain/event"
 	"github.com/simplechain-org/go-simplechain/log"
@@ -40,6 +39,7 @@ import (
 	"github.com/simplechain-org/go-simplechain/p2p/enode"
 	"github.com/simplechain-org/go-simplechain/params"
 	"github.com/simplechain-org/go-simplechain/rlp"
+	"github.com/simplechain-org/go-simplechain/sub/fetcher"
 	"github.com/simplechain-org/go-simplechain/trie"
 )
 
@@ -234,7 +234,7 @@ func NewProtocolManager(config *params.ChainConfig, checkpoint *params.TrustedCh
 		}
 		return n, err
 	}
-	manager.fetcher = fetcher.New(blockchain.GetBlockByHash, validator, manager.BroadcastBlock, heighter, inserter, manager.removePeer)
+	manager.fetcher = fetcher.New(blockchain.GetBlockByHash, validator, manager.BroadcastBlock, heighter, inserter, manager.removePeer, manager.peers.Address)
 
 	return manager, nil
 }
@@ -454,9 +454,6 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 
 	// handle byzantine messages, exit if handled
 	if bft, ok := pm.engine.(consensus.Byzantine); ok {
-		//if msg.Code == NewBlockMsg { //TODO: test
-		//	log.Warn("[debug] warning: receive New block")
-		//}
 		var (
 			handled bool
 			err     error
@@ -770,7 +767,8 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		// Schedule all the unknown hashes for retrieval
 		unknown := make(newBlockHashesData, 0, len(announces))
 		for _, block := range announces {
-			if !pm.blockchain.HasBlock(block.Hash, block.Number) {
+			if !pm.blockchain.HasPendingBlock(block.Hash) &&
+				!pm.blockchain.HasBlock(block.Hash, block.Number) {
 				unknown = append(unknown, block)
 			}
 		}

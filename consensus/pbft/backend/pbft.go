@@ -470,7 +470,7 @@ func (sb *backend) Seal(chain consensus.ChainReader, block *types.Block, results
 			sb.proposedBlockHash = common.Hash{}
 			sb.sealMu.Unlock()
 		}()
-		// post block into Istanbul engine
+		// post block into Pbft engine
 		go sb.EventMux().Post(pbft.RequestEvent{
 			Proposal: block,
 		})

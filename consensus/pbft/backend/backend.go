@@ -303,7 +303,7 @@ func (sb *backend) Commit(conclusion pbft.Conclusion, commitSeals [][]byte) erro
 		sb.sealer.OnCommit(block.NumberU64(), block.Transactions().Len())
 	}
 
-	//log.Report("pbft consensus seal cost",Ω
+	//log.Report("pbft consensus seal cost",
 	//	"num", h.Number, "totalCost", time.Since(sb.sealStart), "execCost", sb.execCost)
 
 	// wait until block timestamp

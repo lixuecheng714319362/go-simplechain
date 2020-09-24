@@ -108,7 +108,7 @@ func TestHandleMsg(t *testing.T) {
 	})
 	// invalid message code. message code is not exists in list
 	msg = &message{
-		Code:          uint64(99),
+		Code:          MsgCode(99),
 		Msg:           m,
 		Address:       v0.Address(),
 		Signature:     []byte{},

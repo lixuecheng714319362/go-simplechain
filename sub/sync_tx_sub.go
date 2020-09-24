@@ -18,8 +18,9 @@
 package sub
 
 import (
-	"github.com/simplechain-org/go-simplechain/common/math"
 	"time"
+
+	"github.com/simplechain-org/go-simplechain/common/math"
 )
 
 func (pm *ProtocolManager) txsyncLoop() {
@@ -68,6 +69,7 @@ func (pm *ProtocolManager) syncTransactions(p *peer) {
 		select {
 		case pm.txsyncTaskCh <- &txsyncTask{txs[start:end], task}:
 		case <-pm.quitSync:
+			return
 		}
 
 		select {

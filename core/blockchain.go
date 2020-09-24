@@ -85,6 +85,7 @@ const (
 	maxTimeFutureBlocks = 30
 	badBlockLimit       = 10
 	TriesInMemory       = 128
+	pendingBlockLimit   = 3
 
 	// BlockChainVersion ensures that an incompatible database forces a resync from scratch.
 	//
@@ -183,8 +184,7 @@ type BlockChain struct {
 	terminateInsert func(common.Hash, uint64) bool // Testing hook used to terminate ancient receipt chain insertion.
 	crossSubscriber simpleSubscriber
 
-	executeEnv    *state.ExecutedEnvironment
-	executeEnvMux sync.RWMutex
+	pendingBlocks *lru.Cache // common.Hash to *state.ExecutedEnvironment
 }
 
 // NewBlockChain returns a fully initialised block chain using information
@@ -206,6 +206,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	futureBlocks, _ := lru.New(maxFutureBlocks)
 	badBlocks, _ := lru.New(badBlockLimit)
 	badProposeBlocks, _ := lru.New(badBlockLimit)
+	pendingBlocks, _ := lru.New(pendingBlockLimit)
 
 	bc := &BlockChain{
 		chainConfig:      chainConfig,
@@ -225,6 +226,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		vmConfig:         vmConfig,
 		badBlocks:        badBlocks,
 		badProposeBlocks: badProposeBlocks,
+		pendingBlocks:    pendingBlocks,
 	}
 	bc.validator = NewBlockValidator(chainConfig, bc, engine)
 	bc.prefetcher = newStatePrefetcher(chainConfig, bc, engine)
@@ -732,6 +734,17 @@ func (bc *BlockChain) HasBadBlock(hash common.Hash) bool {
 	default:
 		return bc.badBlocks.Contains(hash)
 	}
+}
+
+// HasPendingBlock return whether block is executed in pbft consensus
+func (bc *BlockChain) HasPendingBlock(hash common.Hash) bool {
+	switch bc.engine.(type) {
+	case consensus.Pbft:
+		if bc.pendingBlocks != nil {
+			return bc.pendingBlocks.Contains(hash)
+		}
+	}
+	return false
 }
 
 // HasFastBlock checks if a fast block is fully present in the database or not.
@@ -1552,8 +1565,6 @@ func (bc *BlockChain) InsertChain(chain types.Blocks) (int, error) {
 func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, error) {
 	defer func(start time.Time) {
 		log.Trace("BlockChain.insertChain", "blocks", chain.String(), "startTime", start, "costTime", time.Since(start))
-		//log.Error("[debug] BlockChain.insertChain", "blocks", chain.String(), "startTime", start, "costTime", time.Since(start))
-		//debug.PrintStack() //TODO-D
 	}(time.Now())
 
 	// If the chain is terminating, don't even bother starting up
@@ -1739,12 +1750,14 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 
 		// use pre executed context for Pbft consensus
 		// block was executed at proposal commit phase
-		bc.executeEnvMux.RLock()
-		if bc.executeEnv != nil && bc.executeEnv.BlockHash() == block.Hash() {
-			executed = true
-			receipts, logs, usedGas = bc.executeEnv.Receipts(), bc.executeEnv.Logs(), bc.executeEnv.GasUsed()
+		if bc.pendingBlocks != nil {
+			pb, ok := bc.pendingBlocks.Get(block.Hash())
+			if ok {
+				pendingBlock := pb.(*state.ExecutedEnvironment)
+				executed = true
+				statedb, receipts, logs, usedGas = pendingBlock.Statedb(), pendingBlock.Receipts(), pendingBlock.Logs(), pendingBlock.GasUsed()
+			}
 		}
-		bc.executeEnvMux.RUnlock()
 
 		substart := time.Now()
 		if !executed { // execute and validate common block
@@ -2385,8 +2398,16 @@ func (bc *BlockChain) SetCrossSubscriber(s trigger.Subscriber) {
 	bc.crossSubscriber = s.(simpleSubscriber) // panic if failed
 }
 
-func (bc *BlockChain) SetExecuteEnvironment(env *state.ExecutedEnvironment) {
-	bc.executeEnvMux.Lock()
-	defer bc.executeEnvMux.Unlock()
-	bc.executeEnv = env
+func (bc *BlockChain) InsertPendingBlock(env *state.ExecutedEnvironment) {
+	bc.pendingBlocks.Add(env.BlockHash(), env)
+}
+
+func (bc *BlockChain) GetPendingBlock(hash common.Hash) *state.ExecutedEnvironment {
+	if bc.pendingBlocks != nil {
+		pb, ok := bc.pendingBlocks.Get(hash)
+		if ok {
+			return pb.(*state.ExecutedEnvironment)
+		}
+	}
+	return nil
 }

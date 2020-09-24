@@ -129,7 +129,6 @@ func (w *worker) commitTransactions(txs types.Transactions, coinbase common.Addr
 					inc:   true,
 				}
 			}
-			//log.Error("[debug] commitTransactions interrupt", "code", atomic.LoadInt32(interrupt))
 			return atomic.LoadInt32(interrupt) == commitInterruptNewHead
 		}
 		// If we don't have enough gas for any further transactions then we're done

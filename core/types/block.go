@@ -87,6 +87,32 @@ type Header struct {
 	Nonce       BlockNonce     `json:"nonce"`
 }
 
+func (h Header) TerminalString() string {
+	return fmt.Sprintf("Header{"+
+		"parent:%s, "+
+		"uncle:%s, "+
+		"coinbase:%s, "+
+		"tx:%s, "+
+		"difficulty:%s, "+
+		"number:%s, "+
+		"gas:%d, "+
+		"time:%d, "+
+		"Extra:%s, "+
+		"Digest:%s, Nonce:%d"+
+		"}",
+		h.ParentHash.String(),
+		h.UncleHash.String(),
+		h.Coinbase.String(),
+		h.TxHash.String(),
+		h.Difficulty.String(),
+		h.Number.String(),
+		h.GasLimit,
+		h.Time,
+		hexutil.Encode(h.Extra),
+		h.MixDigest.String(),
+		h.Nonce)
+}
+
 // field type overrides for gencodec
 type headerMarshaling struct {
 	Difficulty *hexutil.Big
@@ -105,8 +131,8 @@ func (h *Header) Hash() common.Hash {
 	// specific hash calculation.
 	if h.MixDigest == IstanbulDigest || h.MixDigest == PbftDigest {
 		// Seal is reserved in extra-data. To prove block is signed by the proposer.
-		if istanbulHeader := IstanbulFilteredHeader(h, true); istanbulHeader != nil {
-			return rlpHash(istanbulHeader)
+		if byzantineHeader := ByzantineFilteredHeader(h, true); byzantineHeader != nil {
+			return rlpHash(byzantineHeader)
 		}
 	}
 	return rlpHash(h)
@@ -443,6 +469,10 @@ func (b *Block) Hash() common.Hash {
 }
 
 func (b *Block) PendingHash() common.Hash {
+	// only pbft consensus use pending hash
+	if b.MixDigest() != PbftDigest {
+		return b.Hash()
+	}
 	if hash := b.pendingHash.Load(); hash != nil {
 		return hash.(common.Hash)
 	}

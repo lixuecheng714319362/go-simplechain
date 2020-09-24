@@ -651,7 +651,7 @@ func sigHash(header *types.Header) (hash common.Hash) {
 	hasher := sha3.NewLegacyKeccak256()
 
 	// Clean seal is required for calculating proposer seal.
-	rlp.Encode(hasher, types.IstanbulFilteredHeader(header, false))
+	rlp.Encode(hasher, types.ByzantineFilteredHeader(header, false))
 	hasher.Sum(hash[:0])
 	return hash
 }

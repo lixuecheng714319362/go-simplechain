@@ -31,7 +31,6 @@ func (c *core) sendPreprepare(request *pbft.Request) {
 	//}(time.Now())
 
 	// If I'm the proposer and I have the same sequence with the proposal
-	//log.Error("[debug] is Proposer, send Proposal", "Proposer", c.valSet.GetProposer().Address(), "num", c.current.Sequence())
 	if c.current.Sequence().Cmp(request.Proposal.Number()) == 0 && c.IsProposer() {
 		curView := c.currentView()
 

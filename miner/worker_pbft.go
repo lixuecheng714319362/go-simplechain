@@ -38,6 +38,7 @@ func (w *worker) Execute(block *types.Block) (*types.Block, error) {
 	if parent == nil {
 		return nil, fmt.Errorf("ancestor block is not exist, parent:%s", block.ParentHash().String())
 	}
+
 	statedb, err := state.New(parent.Root, w.chain.StateCache())
 	if err != nil {
 		return nil, err
@@ -53,7 +54,7 @@ func (w *worker) Execute(block *types.Block) (*types.Block, error) {
 		return nil, err
 	}
 
-	w.chain.SetExecuteEnvironment(env)
+	w.chain.InsertPendingBlock(env)
 
 	// update task if seal task exist
 	w.pendingMu.Lock()
@@ -64,6 +65,49 @@ func (w *worker) Execute(block *types.Block) (*types.Block, error) {
 	w.pendingMu.Unlock()
 
 	return block, nil
+}
+
+func (w *worker) executeBlock(block *types.Block, statedb *state.StateDB) (*types.Block, *state.ExecutedEnvironment, error) {
+	var (
+		receipts types.Receipts
+		usedGas  = new(uint64)
+		header   = block.Header()
+		allLogs  []*types.Log
+		//
+		cfg = *w.chain.GetVMConfig()
+	)
+
+	// Iterate over and process the individual transactions
+	gp := new(core.GasPool).AddGas(block.GasLimit())
+	for i, tx := range block.Transactions() {
+		statedb.Prepare(tx.Hash(), block.Hash(), i)
+		receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, nil, gp, statedb, header, tx, usedGas, cfg)
+		if err != nil {
+			return nil, nil, err
+		}
+		receipts = append(receipts, receipt)
+		allLogs = append(allLogs, receipt.Logs...)
+	}
+
+	// parallel process transactions TODO: support parallel transactions
+	/*var err error
+	receipts, allLogs, err = core.ParallelApplyTransactions(w.chainConfig, w.chain, nil, statedb, header, cfg, block.Transactions())
+	if err != nil {
+		return nil, nil, err
+	}*/
+
+	header.GasUsed = *usedGas
+	header.Bloom = types.CreateBloom(receipts)
+	header.ReceiptHash = types.DeriveSha(receipts)
+
+	if err := w.engine.Finalize(w.chain, header, statedb, block.Transactions(), block.Uncles(), receipts); err != nil {
+		return nil, nil, err
+	}
+
+	execBlock := block.WithSeal(header) // with seal executed block
+
+	return execBlock, state.NewExecutedEnvironment(execBlock.Hash(), statedb, receipts, allLogs, *usedGas), nil
+
 }
 
 func (w *worker) OnTimeout() {
@@ -141,48 +185,6 @@ func (w *worker) adjustTimeoutTx() {
 	if uint64(w.pbftCtx.LastTimeoutTx) >= pbft.MaxBlockTxs {
 		w.pbftCtx.LastTimeoutTx = int(pbft.MaxBlockTxs)
 	}
-}
-
-func (w *worker) executeBlock(block *types.Block, statedb *state.StateDB) (*types.Block, *state.ExecutedEnvironment, error) {
-	var (
-		receipts types.Receipts
-		usedGas  = new(uint64)
-		header   = block.Header()
-		allLogs  []*types.Log
-		//
-		cfg = *w.chain.GetVMConfig()
-	)
-
-	// Iterate over and process the individual transactions
-	gp := new(core.GasPool).AddGas(block.GasLimit())
-	for i, tx := range block.Transactions() {
-		statedb.Prepare(tx.Hash(), block.Hash(), i)
-		receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, nil, gp, statedb, header, tx, usedGas, cfg)
-		if err != nil {
-			return nil, nil, err
-		}
-		receipts = append(receipts, receipt)
-		allLogs = append(allLogs, receipt.Logs...)
-	}
-
-	// parallel process transactions TODO: support parallel transactions
-	/*var err error
-	receipts, allLogs, err = core.ParallelApplyTransactions(w.chainConfig, w.chain, nil, statedb, header, cfg, block.Transactions())
-	if err != nil {
-		return nil, nil, err
-	}*/
-
-	header.GasUsed = *usedGas
-	header.Bloom = types.CreateBloom(receipts)
-	header.ReceiptHash = types.DeriveSha(receipts)
-
-	if err := w.engine.Finalize(w.chain, header, statedb, block.Transactions(), block.Uncles(), receipts); err != nil {
-		return nil, nil, err
-	}
-
-	execBlock := block.WithSeal(header) // with seal executed block
-	return execBlock, state.NewExecutedEnvironment(block.Hash(), statedb, receipts, allLogs, *usedGas), nil
-
 }
 
 func (w *worker) commitByzantium(interrupt *int32, noempty bool, tstart time.Time) {

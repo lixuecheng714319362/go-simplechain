@@ -46,7 +46,7 @@ func TestCheckMessage(t *testing.T) {
 	}
 
 	testStates := []State{StateAcceptRequest, StatePreprepared, StatePrepared, StateCommitted}
-	testCode := []uint64{msgPreprepare, msgPrepare, msgCommit, msgRoundChange}
+	testCode := []MsgCode{msgPreprepare, msgPrepare, msgCommit, msgRoundChange}
 
 	// future sequence
 	v := &pbft.View{
