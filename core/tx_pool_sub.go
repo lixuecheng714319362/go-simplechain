@@ -20,14 +20,14 @@ package core
 import (
 	"errors"
 	"fmt"
-	"github.com/Jeffail/tunny"
-	mapset "github.com/deckarep/golang-set"
 	"math"
 	"math/big"
 	"runtime"
 	"sync"
 	"time"
 
+	"github.com/Jeffail/tunny"
+	mapset "github.com/deckarep/golang-set"
 	"github.com/simplechain-org/go-simplechain/common"
 	"github.com/simplechain-org/go-simplechain/core/state"
 	"github.com/simplechain-org/go-simplechain/core/types"
@@ -146,7 +146,7 @@ type TxPoolConfig struct {
 
 // DefaultTxPoolConfig contains the default configurations for the transaction
 var DefaultTxPoolConfig = TxPoolConfig{
-	Journal:   "transactions.rlp",
+	Journal:   "",
 	Rejournal: time.Hour,
 
 	PriceLimit: 1,
@@ -212,15 +212,19 @@ type TxPool struct {
 	chain       blockChain
 	gasPrice    *big.Int
 
+	//syncFeed     event.Feed
+	txFeed       event.Feed
+	signer       types.Signer
 	currentState *state.StateDB
 
-	txFeed event.Feed
-	//syncFeed     event.Feed
-	scope        event.SubscriptionScope
-	chainHeadCh  chan ChainHeadEvent
-	chainHeadSub event.Subscription
-	signer       types.Signer
-	mu           sync.RWMutex
+	scope           event.SubscriptionScope
+	chainHeadCh     chan ChainHeadEvent
+	chainHeadSub    event.Subscription
+	reqResetCh      chan *txpoolResetRequest
+	reorgDoneCh     chan chan struct{}
+	reorgShutdownCh chan struct{} // requests shutdown of scheduleReorgLoop
+	mu              sync.RWMutex
+	wg              sync.WaitGroup // for shutdown sync
 
 	all     *txLookup // All transactions to allow lookups
 	queue   *txQueue
@@ -232,7 +236,11 @@ type TxPool struct {
 	validatorMu  sync.RWMutex
 
 	paraValidator *tunny.Pool
-	wg            sync.WaitGroup // for shutdown sync
+}
+
+type txpoolResetRequest struct {
+	oldHead, newHead *types.Header
+	newBlock         *types.Block
 }
 
 // NewTxPool creates a new transaction pool to gather, sort and filter inbound
@@ -243,44 +251,46 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 
 	// Create the transaction pool with its initial settings
 	pool := &TxPool{
-		config:       config,
-		chainconfig:  chainconfig,
-		chain:        chain,
-		signer:       types.NewEIP155Signer(chainconfig.ChainID),
-		queue:        newTxQueue(),
-		invalid:      mapset.NewSet(),
-		txChecker:    NewTxChecker(),
-		blockTxCheck: NewBlockTxChecker(chain),
-		all:          newTxLookup(),
-		chainHeadCh:  make(chan ChainHeadEvent, chainHeadChanSize),
-		gasPrice:     new(big.Int).SetUint64(config.PriceLimit),
+		config:          config,
+		chainconfig:     chainconfig,
+		chain:           chain,
+		signer:          types.NewEIP155Signer(chainconfig.ChainID),
+		queue:           newTxQueue(),
+		invalid:         mapset.NewSet(),
+		txChecker:       NewTxChecker(),
+		blockTxCheck:    NewBlockTxChecker(chain),
+		all:             newTxLookup(),
+		chainHeadCh:     make(chan ChainHeadEvent, chainHeadChanSize),
+		reqResetCh:      make(chan *txpoolResetRequest),
+		reorgDoneCh:     make(chan chan struct{}),
+		reorgShutdownCh: make(chan struct{}),
+		gasPrice:        new(big.Int).SetUint64(config.PriceLimit),
 	}
-	//pool.locals = newAccountSet(pool.signer)
-	//for _, addr := range config.Locals {
-	//	log.Info("Setting new local account", "address", addr)
-	//	pool.locals.add(addr)
-	//}
-	//pool.priced = newTxPricedList(pool.all)
-	pool.reset(nil, chain.CurrentBlock(), chain.CurrentBlock().Header())
-
-	// If local transactions and journaling is enabled, load from disk
-	config.Journal = ""
-	if !config.NoLocals && config.Journal != "" { //TODO(important): set tx journal to persist local rpc tx
-		//pool.journal = newTxJournal(config.Journal)
-		//
-		//if err := pool.journal.load(pool.AddLocals); err != nil {
-		//	log.Warn("Failed to load transaction journal", "err", err)
-		//}
-		//if err := pool.journal.rotate(pool.Pending()); err != nil {
-		//	log.Warn("Failed to rotate transaction journal", "err", err)
-		//}
-	}
-	// Subscribe events from blockchain
-	pool.chainHeadSub = pool.chain.SubscribeChainHeadEvent(pool.chainHeadCh)
 
 	pool.paraValidator = tunny.NewFunc(runtime.NumCPU(), func(i interface{}) interface{} {
 		return pool.validateAndSubmit(i.(*types.Transaction))
 	})
+
+	pool.reset(nil, chain.CurrentBlock().Header(), chain.CurrentBlock())
+
+	// Start the reorg loop early so it can handle requests generated during journal loading.
+	pool.wg.Add(1)
+	go pool.scheduleReorgLoop()
+
+	// If local transactions and journaling is enabled, load from disk
+	//TODO(important): journal rpc tx
+	if !config.NoLocals && config.Journal != "" {
+		pool.journal = newTxJournal(config.Journal)
+
+		if err := pool.journal.load(pool.AddLocalsSync); err != nil {
+			log.Warn("Failed to load transaction journal", "err", err)
+		}
+		if err := pool.journal.rotateList(pool.PendingLimit(-1)); err != nil {
+			log.Warn("Failed to rotate transaction journal", "err", err)
+		}
+	}
+	// Subscribe events from blockchain
+	pool.chainHeadSub = pool.chain.SubscribeChainHeadEvent(pool.chainHeadCh)
 
 	// Start the event loop and return
 	pool.wg.Add(1)
@@ -295,17 +305,8 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 func (pool *TxPool) loop() {
 	defer pool.wg.Done()
 
-	// Start the stats reporting and transaction eviction tickers
-	//var prevPending, prevQueued, prevStales int
-
-	//report := time.NewTicker(statsReportInterval)
-	//defer report.Stop()
-
-	//evict := time.NewTicker(evictionInterval)
-	//defer evict.Stop()
-	//
-	//journal := time.NewTicker(pool.config.Rejournal)
-	//defer journal.Stop()
+	journal := time.NewTicker(pool.config.Rejournal)
+	defer journal.Stop()
 
 	// Track the previous head headers for transaction reorgs
 	head := pool.chain.CurrentBlock()
@@ -316,70 +317,105 @@ func (pool *TxPool) loop() {
 		// Handle ChainHeadEvent
 		case ev := <-pool.chainHeadCh:
 			if ev.Block != nil {
-				pool.mu.Lock()
-				pool.reset(head.Header(), ev.Block, ev.Block.Header())
+				pool.requestReset(head.Header(), ev.Block.Header(), ev.Block)
 				head = ev.Block
-
-				pool.mu.Unlock()
 			}
+
 		// Be unsubscribed due to system stopped
 		case <-pool.chainHeadSub.Err():
+			close(pool.reorgShutdownCh)
 			return
 
-			// Handle stats reporting ticks
-			//case <-report.C:
-			//	pool.mu.RLock()
-			//	pending, queued := pool.stats()
-			//	//stales := pool.priced.stales
-			//	pool.mu.RUnlock()
-
-			//if pending != prevPending || queued != prevQueued || stales != prevStales {
-			//	log.Debug("Transaction pool status report", "executable", pending, "queued", queued, "stales", stales)
-			//	prevPending, prevQueued, prevStales = pending, queued, stales
-			//}
-
-			// Handle inactive account transaction eviction
-			//case <-evict.C:
-			//	pool.mu.Lock()
-			//	for addr := range pool.queue {
-			//		// Skip local transactions from the eviction mechanism
-			//		if pool.locals.contains(addr) {
-			//			continue
-			//		}
-			//		// Any non-locals old enough should be removed
-			//		if time.Since(pool.beats[addr]) > pool.config.Lifetime {
-			//			for _, tx := range pool.queue[addr].Flatten() {
-			//				pool.removeTx(tx.Hash(), true)
-			//			}
-			//		}
-			//	}
-			//	pool.mu.Unlock()
-
-			// Handle local transaction journal rotation
-			//case <-journal.C:
-			//if pool.journal != nil {
-			//	pool.mu.Lock()
-			//	if err := pool.journal.rotate(pool.Pending()); err != nil {
-			//		log.Warn("Failed to rotate local tx journal", "err", err)
-			//	}
-			//	pool.mu.Unlock()
-			//}
+		// Handle local transaction journal rotation
+		case <-journal.C:
+			if pool.journal != nil {
+				pool.mu.Lock()
+				if err := pool.journal.rotateList(pool.PendingLimit(-1)); err != nil {
+					log.Warn("Failed to rotate local tx journal", "err", err)
+				}
+				pool.mu.Unlock()
+			}
 		}
 	}
 }
 
-// lockedReset is a wrapper around reset to allow calling it in a thread safe
-// manner. This method is only ever used in the tester!
-func (pool *TxPool) lockedReset(oldHead, newHead *types.Header) {
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
+// requestReset requests a pool reset to the new head block.
+// The returned channel is closed when the reset has occurred.
+func (pool *TxPool) requestReset(oldHead *types.Header, newHead *types.Header, newBlock *types.Block) chan struct{} {
+	select {
+	case pool.reqResetCh <- &txpoolResetRequest{oldHead, newHead, newBlock}:
+		return <-pool.reorgDoneCh
+	case <-pool.reorgShutdownCh:
+		return pool.reorgShutdownCh
+	}
+}
 
-	pool.reset(oldHead, nil, newHead)
+// scheduleReorgLoop schedules runs of reset and promoteExecutables. Code above should not
+// call those methods directly, but request them being run using requestReset and
+// requestPromoteExecutables instead.
+func (pool *TxPool) scheduleReorgLoop() {
+	defer pool.wg.Done()
+
+	var (
+		curDone       chan struct{} // non-nil while runReorg is active
+		nextDone      = make(chan struct{})
+		launchNextRun bool
+		reset         *txpoolResetRequest
+	)
+
+	for {
+		// Launch next background reorg if needed
+		if curDone == nil && launchNextRun {
+			// Run the background reorg and announcements
+			go pool.runReorg(nextDone, reset)
+
+			// Prepare everything for the next round of reorg
+			curDone, nextDone = nextDone, make(chan struct{})
+			launchNextRun = false
+
+			reset = nil
+		}
+
+		select {
+		case req := <-pool.reqResetCh:
+			// Reset request: update head if request is already pending.
+			if reset == nil {
+				reset = req
+			} else {
+				reset.newHead = req.newHead
+			}
+			launchNextRun = true
+			pool.reorgDoneCh <- nextDone
+
+		case <-curDone:
+			curDone = nil
+
+		case <-pool.reorgShutdownCh:
+			// Wait for current run to finish.
+			if curDone != nil {
+				<-curDone
+			}
+			close(nextDone)
+			return
+		}
+	}
+}
+
+// runReorg runs reset on behalf of scheduleReorgLoop.
+func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest) {
+	defer close(done)
+
+	pool.mu.Lock()
+	if reset != nil {
+		// Reset from the old head to the new, rescheduling any reorged transactions
+		pool.reset(reset.oldHead, reset.newHead, reset.newBlock)
+	}
+	pool.mu.Unlock()
 }
 
 // reset retrieves the current state of the blockchain and ensures the content
 // of the transaction pool is valid with regard to the chain state.
-func (pool *TxPool) reset(oldHead *types.Header, newBlock *types.Block, newHead *types.Header) {
+func (pool *TxPool) reset(oldHead *types.Header, newHead *types.Header, newBlock *types.Block) {
 	// If we're reorging an old state, reinject all dropped transactions
 	var reinject, recache types.Transactions
 
@@ -483,10 +519,6 @@ func (pool *TxPool) Stop() {
 func (pool *TxPool) SubscribeNewTxsEvent(ch chan<- NewTxsEvent) event.Subscription {
 	return pool.scope.Track(pool.txFeed.Subscribe(ch))
 }
-
-//func (pool *TxPool) SubscribeSyncTxsEvent(ch chan<- NewTxsEvent) event.Subscription {
-//	return pool.scope.Track(pool.syncFeed.Subscribe(ch))
-//}
 
 // GasPrice returns the current gas price enforced by the transaction pool.
 func (pool *TxPool) GasPrice() *big.Int {
@@ -595,7 +627,7 @@ func (pool *TxPool) limit(limitNum int, condition func(tx *types.Transaction, in
 			return true
 		}
 		ret = append(ret, tx)
-		return len(ret) < limitNum
+		return limitNum < 0 || len(ret) < limitNum
 	})
 
 	go pool.RemoveInvalidTxs(invalid)
@@ -625,7 +657,7 @@ func (pool *TxPool) preCheck(tx *types.Transaction) error {
 	if tx.Value().Sign() < 0 {
 		return ErrNegativeValue
 	}
-	if pool.gasPrice.Cmp(tx.GasPrice()) > 0 {
+	if !tx.IsLocal() && pool.gasPrice.Cmp(tx.GasPrice()) > 0 {
 		return ErrUnderpriced
 	}
 	// Ensure the transaction is not duplicate
@@ -677,12 +709,13 @@ func (pool *TxPool) add(tx *types.Transaction, local, sync bool) error {
 		return fmt.Errorf("known transaction: %x", hash)
 	}
 
+	tx.SetLocal(local) // local transaction from rpc
+
 	if err := pool.preCheck(tx); err != nil {
 		return err
 	}
 
 	tx.SetImportTime(time.Now().UnixNano())
-	tx.SetLocal(local)
 
 	if sync {
 		return pool.validateAndSubmit(tx)
@@ -724,9 +757,9 @@ func (pool *TxPool) journalTx(tx *types.Transaction) {
 	if pool.journal == nil {
 		return
 	}
-	//if err := pool.journal.insert(tx); err != nil {
-	//	log.Warn("Failed to journal local transaction", "err", err)
-	//}
+	if err := pool.journal.insert(tx); err != nil {
+		log.Warn("Failed to journal local transaction", "err", err)
+	}
 }
 
 // AddLocal enqueues a single transaction into the pool if it is valid, marking
@@ -734,6 +767,21 @@ func (pool *TxPool) journalTx(tx *types.Transaction) {
 // pricing constraints.
 func (pool *TxPool) AddLocal(tx *types.Transaction) error {
 	return pool.add(tx, !pool.config.NoLocals, false)
+}
+
+func (pool *TxPool) AddLocalSync(tx *types.Transaction) error {
+	return pool.add(tx, !pool.config.NoLocals, true)
+}
+
+// AddLocals enqueues a batch of transactions into the pool if they are valid,
+// marking the senders as a local ones in the mean time, ensuring they go around
+// the local pricing constraints.
+func (pool *TxPool) AddLocals(txs []*types.Transaction) []error {
+	return pool.addTxs(txs, !pool.config.NoLocals, false)
+}
+
+func (pool *TxPool) AddLocalsSync(txs []*types.Transaction) []error {
+	return pool.addTxs(txs, !pool.config.NoLocals, true)
 }
 
 // AddRemote enqueues a single transaction into the pool if it is valid. If the
@@ -745,13 +793,6 @@ func (pool *TxPool) AddRemote(tx *types.Transaction) error {
 
 func (pool *TxPool) AddRemoteSync(tx *types.Transaction) error {
 	return pool.add(tx, false, true)
-}
-
-// AddLocals enqueues a batch of transactions into the pool if they are valid,
-// marking the senders as a local ones in the mean time, ensuring they go around
-// the local pricing constraints.
-func (pool *TxPool) AddLocals(txs []*types.Transaction) []error {
-	return pool.addTxs(txs, !pool.config.NoLocals, false)
 }
 
 // AddRemotes enqueues a batch of transactions into the pool if they are valid.

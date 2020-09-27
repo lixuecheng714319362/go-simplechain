@@ -95,6 +95,8 @@ type Signer interface {
 	Equal(Signer) bool
 }
 
+var big8 = big.NewInt(8)
+
 // EIP155Transaction implements Signer using the EIP155 rules.
 type EIP155Signer struct {
 	chainId, chainIdMul *big.Int
@@ -114,8 +116,6 @@ func (s EIP155Signer) Equal(s2 Signer) bool {
 	eip155, ok := s2.(EIP155Signer)
 	return ok && eip155.chainId.Cmp(s.chainId) == 0
 }
-
-var big8 = big.NewInt(8)
 
 func (s EIP155Signer) Sender(tx *Transaction) (common.Address, error) {
 	if !tx.Protected() {
@@ -141,20 +141,6 @@ func (s EIP155Signer) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big
 		V.Add(V, s.chainIdMul)
 	}
 	return R, S, V, nil
-}
-
-// Hash returns the hash to be signed by the sender.
-// It does not uniquely identify the transaction.
-func (s EIP155Signer) Hash(tx *Transaction) common.Hash {
-	return rlpHash([]interface{}{
-		tx.data.AccountNonce,
-		tx.data.Price,
-		tx.data.GasLimit,
-		tx.data.Recipient,
-		tx.data.Amount,
-		tx.data.Payload,
-		s.chainId, uint(0), uint(0),
-	})
 }
 
 // HomesteadTransaction implements TransactionInterface using the

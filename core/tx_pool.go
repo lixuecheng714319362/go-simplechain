@@ -734,10 +734,19 @@ func (pool *TxPool) AddLocals(txs []*types.Transaction) []error {
 	return pool.addTxs(txs, !pool.config.NoLocals, true)
 }
 
+func (pool *TxPool) AddLocalsSync(txs []*types.Transaction) []error {
+	return pool.AddLocals(txs)
+}
+
 // AddLocal enqueues a single local transaction into the pool if it is valid. This is
 // a convenience wrapper aroundd AddLocals.
 func (pool *TxPool) AddLocal(tx *types.Transaction) error {
 	errs := pool.AddLocals([]*types.Transaction{tx})
+	return errs[0]
+}
+
+func (pool *TxPool) AddLocalSync(tx *types.Transaction) error {
+	errs := pool.AddLocalsSync([]*types.Transaction{tx})
 	return errs[0]
 }
 
@@ -907,7 +916,7 @@ func (pool *TxPool) removeTx(hash common.Hash, outofbound bool) {
 	}
 }
 
-// requestPromoteExecutables requests a pool reset to the new head block.
+// requestReset requests a pool reset to the new head block.
 // The returned channel is closed when the reset has occurred.
 func (pool *TxPool) requestReset(oldHead *types.Header, newHead *types.Header) chan struct{} {
 	select {

@@ -54,3 +54,6 @@ type txdataMarshaling struct {
 	R            *hexutil.Big
 	S            *hexutil.Big
 }
+
+func (tx *Transaction) BlockLimit() uint64                { return 0 }
+func (tx *Transaction) SetBlockLimit(expiredBlock uint64) {}

@@ -259,7 +259,7 @@ func verifyImportCount(t *testing.T, imported chan *types.Block, count int) {
 	for i := 0; i < count; i++ {
 		select {
 		case <-imported:
-		case <-time.After(time.Second):
+		case <-time.After(5 * time.Second):
 			t.Fatalf("block %d: import timeout", i+1)
 		}
 	}

@@ -17,11 +17,13 @@
 // This file contains some shares testing functionality, common to  multiple
 // different files and modules being tested.
 
+
 package sub
 
 import (
 	"crypto/ecdsa"
 	"crypto/rand"
+	"github.com/simplechain-org/go-simplechain/common/math"
 	"math/big"
 	"sort"
 	"sync"
@@ -97,27 +99,24 @@ type testTxPool struct {
 }
 
 func (p *testTxPool) Stats() (int, int) {
-	panic("implement me")
+	return len(p.pool), 0
 }
 
-func (p *testTxPool) AddRemoteSync(*types.Transaction) error {
-	panic("implement me")
+func (p *testTxPool) AddRemoteSync(tx *types.Transaction) error {
+	return p.AddRemotes(types.Transactions{tx})[0]
 }
 
-func (p *testTxPool) AddRemotesSync([]*types.Transaction) []error {
-	panic("implement me")
+func (p *testTxPool) AddRemotesSync(txs []*types.Transaction) []error {
+	return p.AddRemotes(txs)
 }
 
 func (p *testTxPool) Signer() types.Signer {
-	panic("implement me")
+	return types.HomesteadSigner{}
 }
 
-func (p *testTxPool) SenderFromBlocks(types.Blocks) error {
-	panic("implement me")
-}
-
-func (p *testTxPool) SyncLimit(int) types.Transactions {
-	return nil
+func (p *testTxPool) SyncLimit(limit int) types.Transactions {
+	limit = math.IntMin(limit, len(p.pool))
+	return p.pool[:limit]
 }
 
 // AddRemotes appends a batch of transactions to the pool, and notifies any

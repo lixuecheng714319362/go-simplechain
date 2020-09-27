@@ -129,20 +129,21 @@ type ProtocolManager struct {
 func NewProtocolManager(config *params.ChainConfig, checkpoint *params.TrustedCheckpoint, mode downloader.SyncMode, networkID uint64, mux *event.TypeMux, txpool txPool, engine consensus.Engine, blockchain *core.BlockChain, chaindb ethdb.Database, cacheLimit int, whitelist map[uint64]common.Hash, serverPool *serverPool) (*ProtocolManager, error) {
 	// Create the protocol manager with the base fields
 	manager := &ProtocolManager{
-		networkID:   networkID,
-		forkFilter:  forkid.NewFilter(blockchain),
-		eventMux:    mux,
-		txpool:      txpool,
-		blockchain:  blockchain,
-		peers:       newPeerSet(),
-		whitelist:   whitelist,
-		newPeerCh:   make(chan *peer),
-		noMorePeers: make(chan struct{}),
-		txsyncCh:    make(chan *txsync),
-		quitSync:    make(chan struct{}),
-		serverPool:  serverPool,
-		raftMode:    config.Raft,
-		engine:      engine,
+		networkID:    networkID,
+		forkFilter:   forkid.NewFilter(blockchain),
+		eventMux:     mux,
+		txpool:       txpool,
+		blockchain:   blockchain,
+		peers:        newPeerSet(),
+		whitelist:    whitelist,
+		newPeerCh:    make(chan *peer),
+		noMorePeers:  make(chan struct{}),
+		txsyncCh:     make(chan *txsync),
+		txsyncTaskCh: make(chan *txsyncTask),
+		quitSync:     make(chan struct{}),
+		serverPool:   serverPool,
+		raftMode:     config.Raft,
+		engine:       engine,
 	}
 
 	// ibft or pbft

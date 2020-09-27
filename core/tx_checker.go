@@ -19,6 +19,8 @@ package core
 
 import (
 	"fmt"
+	"github.com/exascience/pargo/parallel"
+	"runtime"
 	"sync"
 
 	"github.com/simplechain-org/go-simplechain/common"
@@ -158,10 +160,12 @@ func (m *BlockTxChecker) GetBlockTxs(number uint64, update bool) []common.Hash {
 }
 
 func (m *BlockTxChecker) SetBlockTxs(number uint64, txs types.Transactions) {
-	hashes := make([]common.Hash, 0, txs.Len())
-	for _, tx := range txs {
-		hashes = append(hashes, tx.Hash())
-	}
+	hashes := make([]common.Hash, txs.Len())
+	parallel.Range(0, txs.Len(), runtime.NumCPU(), func(low, high int) {
+		for i := low; i < high; i++ {
+			hashes[i] = txs[i].Hash()
+		}
+	})
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.blkTxCache[number] = hashes

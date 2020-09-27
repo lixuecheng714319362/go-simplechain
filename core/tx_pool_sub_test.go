@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/simplechain-org/go-simplechain/common"
+	"github.com/simplechain-org/go-simplechain/core/rawdb"
 	"github.com/simplechain-org/go-simplechain/core/state"
 	"github.com/simplechain-org/go-simplechain/core/types"
 	"github.com/simplechain-org/go-simplechain/crypto"
@@ -39,6 +40,7 @@ var testTxPoolConfig TxPoolConfig
 func init() {
 	testTxPoolConfig = DefaultTxPoolConfig
 	testTxPoolConfig.Journal = ""
+	testTxPoolConfig.PriceLimit = 100
 }
 
 type testBlockChain struct {
@@ -52,11 +54,13 @@ type testBlockChain struct {
 }
 
 func newTestBlockChain() *testBlockChain {
+	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()))
 	bc := &testBlockChain{
 		hashNum:       make(map[common.Hash]uint64, 1),
 		chain:         make([]*types.Block, 1),
 		chainHeadFeed: new(event.Feed),
 		current:       0,
+		statedb:       statedb,
 	}
 	// make a genesis block[0]
 	genesis := types.NewBlock(&types.Header{}, nil, nil, nil)
@@ -111,6 +115,12 @@ func (bc *testBlockChain) Produce(txs types.Transactions) *types.Block {
 	header.ParentHash = parentHash
 	header.Time = parentTime + 1
 
+	// process transactions
+	for _, tx := range txs {
+		addr, _ := types.Sender(signer, tx)
+		bc.statedb.SetNonce(addr, bc.statedb.GetNonce(addr)+1)
+	}
+
 	block := types.NewBlock(header, txs, nil, nil)
 
 	bc.current++
@@ -122,11 +132,12 @@ func (bc *testBlockChain) Produce(txs types.Transactions) *types.Block {
 	return block
 }
 
+var signer = types.NewEIP155Signer(params.TestChainConfig.ChainID)
+
 func getSignedTx(count int, key *ecdsa.PrivateKey, gas uint64, price *big.Int, nonce, blockLimit uint64) types.Transactions {
 	txs := make(types.Transactions, 0, count)
 	for i := 0; i < count; i++ {
 		addr := crypto.PubkeyToAddress(key.PublicKey)
-		signer := types.NewEIP155Signer(params.TestChainConfig.ChainID)
 		raw := types.NewTransaction(nonce+uint64(i), addr, big.NewInt(int64(i)), gas, price, nil)
 		if blockLimit > 0 {
 			raw.SetBlockLimit(blockLimit)
@@ -148,7 +159,7 @@ func setupTxPool() (*TxPool, *ecdsa.PrivateKey, *testBlockChain) {
 	return pool, key, blockchain
 }
 
-func TestTxPool_AddLocal(t *testing.T) {
+func TestTxPool_Local(t *testing.T) {
 	txpool, key, blockchain := setupTxPool()
 
 	txs := getSignedTx(2, key, 21000, txpool.gasPrice, 0, txpool.chain.CurrentBlock().NumberU64()+1)
@@ -185,8 +196,12 @@ func TestTxPool_AddLocal(t *testing.T) {
 	blockchain.Produce(pendingTxs)
 
 	for !txpool.txChecker.OK(txs[0], false) {
+		select {
 		// wait until newHead handled
-		time.Sleep(time.Millisecond)
+		case <-time.After(time.Millisecond):
+		case <-time.After(time.Second):
+			t.Fatal("timeout")
+		}
 	}
 
 	// check double spend tx in blockchain
@@ -202,7 +217,7 @@ func TestTxPool_AddLocal(t *testing.T) {
 	// check underprice transaction
 	tx2 := getSignedTx(1, key, 21000, new(big.Int), 3, txpool.chain.CurrentBlock().NumberU64()+1)[0]
 	err = txpool.AddLocal(tx2)
-	assert.Equal(t, ErrUnderpriced, err)
+	assert.NoError(t, err)
 
 	// check overflow
 	txpool.config.GlobalSlots = 3
@@ -210,11 +225,78 @@ func TestTxPool_AddLocal(t *testing.T) {
 	for _, tx := range txs2 {
 		assert.NoError(t, txpool.AddLocal(tx))
 	}
+	for i := 0; i < 3; i++ {
+		select {
+		case <-newTx:
+		case err := <-sub.Err():
+			t.Error(err)
+		case <-time.After(time.Second):
+			t.Error("timeout waiting new tx")
+		}
+	}
 
-	tx3 := getSignedTx(3, key, 21000, txpool.gasPrice, 7, txpool.chain.CurrentBlock().NumberU64()+1)[0]
+	tx3 := getSignedTx(1, key, 21000, txpool.gasPrice, 7, txpool.chain.CurrentBlock().NumberU64()+1)[0]
 	err = txpool.AddLocal(tx3)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "txpool is full")
+}
+
+func TestTxPool_Remote(t *testing.T) {
+	txpool, key, blockchain := setupTxPool()
+
+	tx := getSignedTx(1, key, 21000, txpool.GasPrice(), 0, txpool.chain.CurrentBlock().NumberU64()+1)[0]
+	err := txpool.AddRemote(tx)
+	time.Sleep(50 * time.Millisecond)
+	assert.NoError(t, err)
+
+	blockchain.Produce(types.Transactions{tx})
+
+	// check underprice transaction
+	{
+		tx := getSignedTx(1, key, 21000, common.Big1, 1, txpool.chain.CurrentBlock().NumberU64()+1)[0]
+		err := txpool.AddRemote(tx)
+		assert.Equal(t, ErrUnderpriced, err)
+	}
+}
+
+func TestTxPool_DuringTransactionPoolReset(t *testing.T) {
+	txpool, key, blockchain := setupTxPool()
+
+	txs := getSignedTx(2, key, 21000, txpool.gasPrice, 0, txpool.chain.CurrentBlock().NumberU64()+1)
+
+	txpool.AddRemotesSync(txs)
+
+	size, _ := txpool.Stats()
+	assert.Equal(t, 2, size, "add txs")
+
+	blockchain.Produce(txs)
+	blockchain.Produce(nil)
+
+	txpool.requestReset(nil, nil, nil)
+
+	err := txpool.preCheck(txs[0])
+	assert.Equal(t, ErrDuplicated, err)
+
+	err = txpool.validateTx(txs[1])
+	assert.Equal(t, ErrDuplicated, err)
+
+	txs = getSignedTx(1, key, 21000, txpool.gasPrice, 3, txpool.chain.CurrentBlock().NumberU64()+1)
+	assert.NoError(t, txpool.preCheck(txs[0]))
+	assert.NoError(t, txpool.validateTx(txs[0]))
+
+	blockchain.Produce(txs)
+
+	txpool.requestReset(nil, nil, nil)
+
+	err = txpool.preCheck(txs[0])
+	assert.Equal(t, ErrDuplicated, err)
+
+	err = txpool.validateTx(txs[0])
+	assert.Equal(t, ErrDuplicated, err)
+
+	addr := crypto.PubkeyToAddress(key.PublicKey)
+	nonce := txpool.currentState.GetNonce(addr)
+	assert.EqualValues(t, 3, nonce)
 }
 
 func BenchmarkTxPool_AddLocal10000(b *testing.B) { benchmarkAddLocal(b, 10000) }

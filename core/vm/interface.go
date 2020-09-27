@@ -17,7 +17,6 @@
 package vm
 
 import (
-	"github.com/simplechain-org/go-simplechain/core/state"
 	"math/big"
 
 	"github.com/simplechain-org/go-simplechain/common"
@@ -67,14 +66,14 @@ type StateDB interface {
 	ForEachStorage(common.Address, func(common.Hash, common.Hash) bool) error
 
 	// for concurrent vm: evmc
-	CreateAccountUseDag(common.Address, *state.StateModify)
-	AddBalanceUseDag(common.Address, *big.Int, *state.StateModify)
-	SetNonceUseDag(common.Address, uint64, *state.StateModify)
-	AddRefundUseDag(uint64, *state.StateModify)
-	SubRefundUseDag(uint64, *state.StateModify)
-	SetStateUseDag(common.Address, common.Hash, common.Hash, *state.StateModify)
-	AddLogUseDag(*types.Log, *state.StateModify)
-	AddPreimageUseDag(common.Hash, []byte, *state.StateModify)
+	//CreateAccountUseDag(common.Address, *state.StateModify)
+	//AddBalanceUseDag(common.Address, *big.Int, *state.StateModify)
+	//SetNonceUseDag(common.Address, uint64, *state.StateModify)
+	//AddRefundUseDag(uint64, *state.StateModify)
+	//SubRefundUseDag(uint64, *state.StateModify)
+	//SetStateUseDag(common.Address, common.Hash, common.Hash, *state.StateModify)
+	//AddLogUseDag(*types.Log, *state.StateModify)
+	//AddPreimageUseDag(common.Hash, []byte, *state.StateModify)
 }
 
 // CallContext provides a basic interface for the EVM calling conventions. The EVM

@@ -27,7 +27,10 @@ const (
 	errPrefix  = "\x1b[91merror:\x1b[0m"
 )
 
-var txsCount = int64(0)
+var (
+	txsCount = int64(0)
+	signer   types.Signer
+)
 
 var senderKeys = []string{
 	"5aedb85503128685e4f92b0cc95e9e1185db99339f9b85125c1e2ddc0f7c4c48",
@@ -85,6 +88,8 @@ func main() {
 
 	var cancels []context.CancelFunc
 
+	signer = types.NewEIP155Signer(new(big.Int).SetUint64(*chainId))
+
 	if *callcode {
 
 	}
@@ -129,26 +134,6 @@ func main() {
 	}
 
 	time.Sleep(time.Second)
-	//client, err := ethclient.Dial(*url)
-	//defer client.Close()
-	//if err != nil {
-	//	log.Printf(warnPrefix+"Failed to connect: %v", err)
-	//	return
-	//}
-	//recordCount := len(records)
-	//onChainCount := int64(0)
-	//
-	//for i := 0; i < recordCount; i++ {
-	//	receipt, err := client.TransactionReceipt(context.Background(), records[i])
-	//	if err != nil {
-	//		log.Printf(warnPrefix+"Failed to TransactionReceipt: %v", err)
-	//		continue
-	//	}
-	//	if receipt != nil {
-	//		onChainCount++
-	//	}
-	//}
-	//log.Printf("txsCount=%v,recordCount=%v,onChainCount=%v", txsCount, recordCount, onChainCount)
 }
 
 func getBlockLimit(ctx context.Context, client *ethclient.Client, last uint64) uint64 {
@@ -169,8 +154,6 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 	if err != nil {
 		log.Fatalf(errPrefix+" get gas price: %v", err)
 	}
-	signer := types.NewEIP155Signer(new(big.Int).SetUint64(*chainId))
-
 	var (
 		data       [20 + 64]byte
 		blockLimit = getBlockLimit(ctx, client, 0)
@@ -192,13 +175,12 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 			receivers[i] = crypto.PubkeyToAddress(pkr.PublicKey)
 		}
 
-		signer := types.NewEIP155Signer(new(big.Int).SetUint64(*chainId))
 		sender, _ := crypto.HexToECDSA(senderKeys[0])
 		blockLimit := getBlockLimit(ctx, client, 0)
 		nonce := nonces[0]
 
 		for i, s := range senders {
-			sendTransaction(ctx, signer, sender, nonce+uint64(i), blockLimit, crypto.PubkeyToAddress(s.PublicKey), big1e20, uint64(21000+(20+64)*68), gasPrice, nil, client)
+			sendTransaction(ctx, sender, nonce+uint64(i), blockLimit, crypto.PubkeyToAddress(s.PublicKey), big1e20, uint64(21000+(20+64)*68), gasPrice, nil, client)
 		}
 	}
 
@@ -250,7 +232,7 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 					toAddress = receivers[turn]
 				}
 
-				sendTransaction(ctx, signer, privateKey, nonce, blockLimit, toAddress, big1, gasLimit, gasPrice, data[:], client)
+				sendTransaction(ctx, privateKey, nonce, blockLimit, toAddress, big1, gasLimit, gasPrice, data[:], client)
 
 				i++
 				//switch {
@@ -274,7 +256,7 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 	}
 }
 
-func sendTransaction(ctx context.Context, signer types.Signer, key *ecdsa.PrivateKey, nonce, limit uint64,
+func sendTransaction(ctx context.Context, key *ecdsa.PrivateKey, nonce, limit uint64,
 	toAddress common.Address, value *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte, client *ethclient.Client) {
 
 	tx := types.NewTransaction(nonce, toAddress, value, gasLimit, gasPrice, data)

@@ -2,10 +2,10 @@ package sub
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"testing"
 
 	"github.com/simplechain-org/go-simplechain/common"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestTreeRouter_SelectNodes(t *testing.T) {
@@ -77,6 +77,25 @@ func TestTreeRouter_SelectNodes(t *testing.T) {
 
 	{
 		var (
+			width = 1
+			size  = 4
+		)
+		PeterRouter := CreateTreeRouter(1, testValidators[:size], Peter, width)
+		MartinRouter := CreateTreeRouter(1, testValidators[:size], Martin, width)
+		GaryRouter := CreateTreeRouter(1, testValidators[:size], Gary, width)
+
+		var Peter RouterNodes = testSelectNodes(PeterRouter, PeterRouter, testValidators[1:2]...)
+		fmt.Println("-----Peter-----\n", Peter)
+
+		var Peter2Martin RouterNodes = testSelectNodes(PeterRouter, MartinRouter, testValidators[2])
+		fmt.Println("-----Peter To Martin-----\n", Peter2Martin)
+
+		var Peter2Gary RouterNodes = testSelectNodes(PeterRouter, GaryRouter, testValidators[3])
+		fmt.Println("-----Peter To Gary-----\n", Peter2Gary)
+	}
+
+	{
+		var (
 			width = 2
 			size  = 4
 		)
@@ -93,7 +112,7 @@ func TestTreeRouter_SelectNodes(t *testing.T) {
 		var Peter2Gary RouterNodes = testSelectNodes(PeterRouter, GaryRouter)
 		fmt.Println("-----Peter To Gary-----\n", Peter2Gary)
 
-		var Martin RouterNodes = testSelectNodes(MartinRouter, MartinRouter, testValidators[2], testValidators[3])
+		var Martin RouterNodes = testSelectNodes(MartinRouter, MartinRouter, testValidators[2:]...)
 		fmt.Println("-----Martin-----\n", Martin)
 
 		var Gary RouterNodes = testSelectNodes(GaryRouter, GaryRouter, testValidators[3], testValidators[0])

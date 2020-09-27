@@ -39,7 +39,7 @@ ios:
 	@echo "Done building."
 	@echo "Import \"$(GOBIN)/sipe.framework\" to use the library."
 
-test: all lint
+test: all
 	build/env.sh go run build/ci.go test
 
 subtest: all
