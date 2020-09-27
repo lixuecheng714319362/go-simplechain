@@ -29,6 +29,7 @@ type Config struct {
 	ProposerPolicy ProposerPolicy `toml:",omitempty"` // The policy for proposer selection
 	Epoch          uint64         `toml:",omitempty"` // The number of blocks after which to checkpoint and reset the pending votes
 	LightMode      bool           `toml:",omitempty"` // Enable receive light block with tx digests only
+	GasLimit       uint64
 }
 
 var DefaultConfig = &Config{

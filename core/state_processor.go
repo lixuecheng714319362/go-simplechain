@@ -56,11 +56,12 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		usedGas  = new(uint64)
 		header   = block.Header()
 		allLogs  []*types.Log
-		gp       = new(GasPool).AddGas(block.GasLimit())
+		//gp       *GasPool
+		gasLimit = block.GasLimit()
 	)
-
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
+		gp := new(GasPool).AddGas(gasLimit)
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 		receipt, err := ApplyTransaction(p.config, p.bc, nil, gp, statedb, header, tx, usedGas, cfg)
 		if err != nil {

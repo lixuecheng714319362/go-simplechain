@@ -364,6 +364,7 @@ func (sb *backend) Prepare(chain consensus.ChainReader, header *types.Header) er
 	}
 	// use the same difficulty for all blocks
 	header.Difficulty = defaultDifficulty
+	header.GasLimit = sb.CalGasLimit(parent)
 
 	// Assemble the voting snapshot
 	snap, err := sb.snapshot(chain, number-1, header.ParentHash, nil)
@@ -406,6 +407,13 @@ func (sb *backend) Prepare(chain consensus.ChainReader, header *types.Header) er
 	header.Time = math.Uint64Max(parent.Time+sb.config.BlockPeriod, uint64(time.Now().Unix()))
 
 	return nil
+}
+
+func (sb *backend) CalGasLimit(parent *types.Header) uint64 {
+	if sb.config.GasLimit == 0 {
+		return parent.GasLimit
+	}
+	return sb.config.GasLimit
 }
 
 // Finalize runs any post-transaction state modifications (e.g. block rewards)

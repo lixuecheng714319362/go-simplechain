@@ -25,6 +25,7 @@ import (
 	"github.com/simplechain-org/go-simplechain/core/types"
 	"github.com/simplechain-org/go-simplechain/core/vm"
 	"github.com/simplechain-org/go-simplechain/crypto"
+	"github.com/simplechain-org/go-simplechain/log"
 	"github.com/simplechain-org/go-simplechain/params"
 )
 
@@ -83,19 +84,28 @@ func applyCommonTransaction(config *params.ChainConfig, bc ChainContext, author 
 	return receipt, err
 }
 
-func applyTransactionWithErr(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
+func applyTransactionWithErr(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool,
+	statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
 	receipt, err := applyCommonTransaction(config, bc, author, gp, statedb, header, tx, usedGas, cfg)
 
 	switch err {
-	// return a failed receipt for vm.Error
-	case vm.ErrOutOfGas,
+	// return a failed receipt
+	case
+		// insufficient failure
+		ErrInsufficientBalanceForGas,
+		ErrGasLimitReached,
+		// vm failure
+		vm.ErrOutOfGas,
 		vm.ErrCodeStoreOutOfGas,
 		vm.ErrDepth,
 		vm.ErrTraceLimitReached,
 		vm.ErrInsufficientBalance,
 		vm.ErrContractAddressCollision,
-		vm.ErrNoCompatibleInterpreter,
-		errInsufficientBalanceForGas:
+		vm.ErrNoCompatibleInterpreter:
+
+		//TODO(yc): pay gas for failed tx
+		gasUsed := header.GasLimit - gp.Gas()
+		log.Trace("Caught transaction process error", "hash", tx.Hash(), "gas", gasUsed, "err", err)
 
 		receipt := types.NewReceipt(nil, true, *usedGas)
 		receipt.TxHash = tx.Hash()

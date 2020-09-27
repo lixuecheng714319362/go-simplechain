@@ -18,7 +18,6 @@ package miner
 
 import (
 	"errors"
-	"fmt"
 	"math/big"
 	"strings"
 	"sync"
@@ -534,7 +533,6 @@ func (w *worker) mainLoop() {
 			}
 
 		case ev := <-w.txsCh:
-			fmt.Println("worker::new tx")
 			// Apply transactions to the pending state if we're not mining.
 			//
 			// Note all transactions received may not be continuous with transactions

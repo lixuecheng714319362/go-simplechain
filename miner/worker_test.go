@@ -83,9 +83,13 @@ func init() {
 		Period: 10,
 		Epoch:  30000,
 	}
-	tx1, _ := types.SignTx(types.NewTransaction(0, testUserAddress, big.NewInt(1000), params.TxGas, nil, nil), types.HomesteadSigner{}, testBankKey)
+	tx1 := types.NewTransaction(0, testUserAddress, big.NewInt(1000), params.TxGas, nil, nil)
+	tx1.SetBlockLimit(100)
+	tx1, _ = types.SignTx(tx1, types.HomesteadSigner{}, testBankKey)
 	pendingTxs = append(pendingTxs, tx1)
-	tx2, _ := types.SignTx(types.NewTransaction(1, testUserAddress, big.NewInt(1000), params.TxGas, nil, nil), types.HomesteadSigner{}, testBankKey)
+	tx2 := types.NewTransaction(1, testUserAddress, big.NewInt(1000), params.TxGas, nil, nil)
+	tx2.SetBlockLimit(100)
+	tx2, _ = types.SignTx(tx2, types.HomesteadSigner{}, testBankKey)
 	newTxs = append(newTxs, tx2)
 	rand.Seed(time.Now().UnixNano())
 }
@@ -172,16 +176,18 @@ func (b *testWorkerBackend) newRandomUncle() *types.Block {
 func (b *testWorkerBackend) newRandomTx(creation bool) *types.Transaction {
 	var tx *types.Transaction
 	if creation {
-		tx, _ = types.SignTx(types.NewContractCreation(b.txPool.Nonce(testBankAddress), big.NewInt(0), testGas, nil, common.FromHex(testCode)), types.HomesteadSigner{}, testBankKey)
+		tx = types.NewContractCreation(b.txPool.Nonce(testBankAddress), big.NewInt(0), testGas, nil, common.FromHex(testCode))
 	} else {
-		tx, _ = types.SignTx(types.NewTransaction(b.txPool.Nonce(testBankAddress), testUserAddress, big.NewInt(1000), params.TxGas, nil, nil), types.HomesteadSigner{}, testBankKey)
+		tx = types.NewTransaction(b.txPool.Nonce(testBankAddress), testUserAddress, big.NewInt(1000), params.TxGas, nil, nil)
 	}
-	return tx
+	tx.SetBlockLimit(100)
+	signTx, _ := types.SignTx(tx, types.HomesteadSigner{}, testBankKey)
+	return signTx
 }
 
 func newTestWorker(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine, db ethdb.Database, blocks int) (*worker, *testWorkerBackend) {
 	backend := newTestWorkerBackend(t, chainConfig, engine, db, blocks)
-	backend.txPool.AddLocals(pendingTxs)
+	backend.txPool.AddLocalsSync(pendingTxs)
 	w := newWorker(testConfig, chainConfig, engine, backend, new(event.TypeMux), nil, false)
 	w.setEtherbase(testBankAddress)
 	return w, backend
@@ -245,8 +251,8 @@ func testGenerateBlockAndImport(t *testing.T, isClique bool) {
 	go listenNewBlock()
 
 	for i := 0; i < 5; i++ {
-		b.txPool.AddLocal(b.newRandomTx(true))
-		b.txPool.AddLocal(b.newRandomTx(false))
+		b.txPool.AddLocalSync(b.newRandomTx(true))
+		b.txPool.AddLocalSync(b.newRandomTx(false))
 		w.postSideBlock(core.ChainSideEvent{Block: b.newRandomUncle()})
 		w.postSideBlock(core.ChainSideEvent{Block: b.newRandomUncle()})
 		select {
@@ -414,7 +420,7 @@ func testRegenerateMiningBlock(t *testing.T, chainConfig *params.ChainConfig, en
 			t.Error("new task timeout")
 		}
 	}
-	b.txPool.AddLocals(newTxs)
+	b.txPool.AddLocalsSync(newTxs)
 	time.Sleep(time.Second)
 
 	select {

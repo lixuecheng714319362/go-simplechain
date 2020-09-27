@@ -78,8 +78,9 @@ func (w *worker) executeBlock(block *types.Block, statedb *state.StateDB) (*type
 	)
 
 	// Iterate over and process the individual transactions
-	gp := new(core.GasPool).AddGas(block.GasLimit())
+	//gp := new(core.GasPool).AddGas(math.MaxUint64)
 	for i, tx := range block.Transactions() {
+		gp := new(core.GasPool).AddGas(block.GasLimit())
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 		receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, nil, gp, statedb, header, tx, usedGas, cfg)
 		if err != nil {

@@ -110,7 +110,6 @@ func (w *worker) acceptPendingTxs(coinbase common.Address, transactions types.Tr
 func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coinbase common.Address, interrupt *int32) bool {
 	// Short circuit if current is nil
 	if w.current == nil {
-		//log.Info("w.current == nil")
 		return true
 	}
 
@@ -119,7 +118,6 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 	}
 
 	var coalescedLogs []*types.Log
-	//Loop:
 	for {
 		// In the following three cases, we will interrupt the execution of the transaction.
 		// (1) new head block event arrival, the interrupt signal is 1

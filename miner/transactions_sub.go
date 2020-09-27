@@ -63,33 +63,21 @@ func (w *worker) applyTransactions(interrupt *int32, noempty bool, tstart time.T
 	commitUncles(w.localUncles)
 	commitUncles(w.remoteUncles)
 
-	// Fill the block with all available pending transactions.
-	start := time.Now()
-	pending := w.eth.TxPool().PendingLimit(1000)
-	loadTime := time.Since(start)
-
-	if !noempty && len(pending) == 0 {
+	if !noempty {
 		// Create an empty block based on temporary copied state for sealing in advance without waiting block
 		// execution finished.
 		w.commit(uncles, nil, false, tstart)
 	}
 
+	// Fill the block with all available pending transactions.
+	pending := w.eth.TxPool().PendingLimit(1000)
 	// Short circuit if there is no available pending transactions
 	if len(pending) == 0 {
 		w.updateSnapshot()
 		return
 	}
 
-	start = time.Now()
-	exit := w.commitTransactions(pending, w.coinbase, interrupt)
-
-	executeTime := time.Since(start)
-	eachcost := executeTime / time.Duration(pending.Len())
-	log.Error("[report] >>> block pack transactions time",
-		"load", loadTime, "execute", executeTime, "eachcost", eachcost)
-
-	if exit {
-		//log.Error("poatest----interrupt", "timestamp", timestamp, "total", len(pending))
+	if w.commitTransactions(pending, w.coinbase, interrupt) {
 		return
 	}
 
@@ -106,10 +94,7 @@ func (w *worker) commitTransactions(txs types.Transactions, coinbase common.Addr
 		w.current.gasPool = new(core.GasPool).AddGas(w.current.header.GasLimit)
 	}
 
-	var (
-		coalescedLogs []*types.Log
-	)
-
+	var coalescedLogs []*types.Log
 	for _, tx := range txs {
 		// In the following three cases, we will interrupt the execution of the transaction.
 		// (1) new head block event arrival, the interrupt signal is 1
@@ -151,27 +136,15 @@ func (w *worker) commitTransactions(txs types.Transactions, coinbase common.Addr
 			// Pop the current out-of-gas transaction without shifting in the next from the account
 			log.Trace("Gas limit exceeded for current block", "sender", from)
 
-		//case core.ErrNonceTooLow:
-		//	// New head notification data race between the transaction pool and miner, shift
-		//	log.Trace("Skipping transaction with low nonce", "sender", from, "nonce", tx.Nonce())
-		//	txs.Shift()
-		//
-		//case core.ErrNonceTooHigh:
-		//	// Reorg notification data race between the transaction pool and miner, skip account =
-		//	log.Trace("Skipping account with hight nonce", "sender", from, "nonce", tx.Nonce())
-		//	txs.Pop()
-
 		case nil:
 			// Everything ok, collect the logs and shift in the next transaction from the same account
 			coalescedLogs = append(coalescedLogs, logs...)
 			w.current.tcount++
-			//txs.Shift()
 
 		default:
 			// Strange error, discard the transaction and get the next in line (note, the
 			// nonce-too-high clause will prevent us from executing in vain).
 			log.Debug("Transaction failed, account skipped", "hash", tx.Hash(), "err", err)
-			//txs.Shift()
 		}
 	}
 
