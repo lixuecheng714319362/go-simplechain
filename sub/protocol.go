@@ -61,6 +61,8 @@ const (
 	ReceiptsMsg         = 0x10
 	ByzantineMsg        = 0x11 // include IstanbulMsg and PbftMsg
 	TransactionRouteMsg = 0x21
+	GetBlockExtraMsg    = 0x22
+	BlockExtraMsg       = 0x23
 )
 
 type errCode int

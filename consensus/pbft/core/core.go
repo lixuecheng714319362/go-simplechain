@@ -80,9 +80,11 @@ type core struct {
 	timeoutSub            *event.TypeMuxSubscription
 	futurePreprepareTimer *time.Timer
 
-	valSet                pbft.ValidatorSet
+	valSet     pbft.ValidatorSet
+	validateFn func([]byte, []byte) (common.Address, error)
+
 	waitingForRoundChange bool
-	validateFn            func([]byte, []byte) (common.Address, error)
+	//roundChangeView       *pbft.View
 
 	backlogs   map[common.Address]*prque.Prque
 	backlogsMu *sync.Mutex
@@ -356,6 +358,9 @@ func (c *core) startNewRound(round *big.Int) {
 	c.valSet.CalcProposer(lastProposer, newView.Round.Uint64())
 	c.waitingForRoundChange = false
 	c.setState(StateAcceptRequest)
+
+	log.Report("startNewRound >>", "IsProposer", c.IsProposer(), "roundChange", roundChange)
+
 	if roundChange && c.IsProposer() && c.current != nil {
 		// If it is locked, propose the old proposal
 		// If we have pending request, propose pending request
@@ -379,10 +384,12 @@ func (c *core) catchUpRound(view *pbft.View) {
 	if view.Round.Cmp(c.current.Round()) > 0 {
 		c.roundMeter.Mark(new(big.Int).Sub(view.Round, c.current.Round()).Int64())
 	}
+
 	c.waitingForRoundChange = true
+	//c.roundChangeView = view
 
 	// Need to keep block locked for round catching up
-	c.updateRoundState(view, c.valSet, true)
+	c.updateRoundState(view, c.valSet, true) //TODO
 	c.roundChangeSet.Clear(view.Round)
 	c.newRoundChangeTimer()
 
@@ -391,14 +398,18 @@ func (c *core) catchUpRound(view *pbft.View) {
 
 // updateRoundState updates round state by checking if locking block is necessary
 func (c *core) updateRoundState(view *pbft.View, validatorSet pbft.ValidatorSet, roundChange bool) {
+	//logger := c.logger.New("view", view, "validators", validatorSet.List(), "rondChange", roundChange)
 	// Lock only if both roundChange is true and it is locked
 	if roundChange && c.current != nil {
 		if c.current.IsHashLocked() {
+			//logger.Error("[report] new round state with locked proposal", "locked", c.current.GetLockedHash())
 			c.current = newRoundState(view, validatorSet, c.current.GetLockedHash(), c.current.Preprepare, c.current.Prepare, c.current.pendingRequest, c.backend.HasBadProposal)
 		} else {
+			//logger.Error("[report] new round state with request", "pendingRequest", c.current.pendingRequest)
 			c.current = newRoundState(view, validatorSet, common.Hash{}, nil, nil, c.current.pendingRequest, c.backend.HasBadProposal)
 		}
 	} else {
+		//logger.Error("[report] new round state")
 		c.current = newRoundState(view, validatorSet, common.Hash{}, nil, nil, nil, c.backend.HasBadProposal)
 	}
 }
@@ -431,6 +442,7 @@ func (c *core) stopTimer() {
 }
 
 func (c *core) newRoundChangeTimer() {
+	logger := c.logger.New("state", c.state, "round", c.current.Round())
 	c.stopTimer()
 
 	// set timeout based on the round number
@@ -438,7 +450,7 @@ func (c *core) newRoundChangeTimer() {
 	timeout := time.Duration(c.config.RequestTimeout) * time.Millisecond * time.Duration(math.Pow(timeoutRate, float64(round)))
 
 	c.roundChangeTimer = time.AfterFunc(timeout, func() {
-		log.Warn("timeout, send view change", "timeout", timeout, "round", round)
+		logger.Warn("timeout, send view change", "timeout", timeout)
 		c.sendEvent(timeoutEvent{}) //FIXME: send timeoutEvent
 	})
 }

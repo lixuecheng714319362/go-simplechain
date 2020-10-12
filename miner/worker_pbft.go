@@ -67,7 +67,7 @@ func (w *worker) Execute(block *types.Block) (*types.Block, error) {
 	return block, nil
 }
 
-func (w *worker) executeBlock(block *types.Block, statedb *state.StateDB) (*types.Block, *state.ExecutedEnvironment, error) {
+func (w *worker) executeBlock(block *types.Block, statedb *state.StateDB) (*types.Block, *core.ExecutedBlock, error) {
 	var (
 		receipts types.Receipts
 		usedGas  = new(uint64)
@@ -107,7 +107,7 @@ func (w *worker) executeBlock(block *types.Block, statedb *state.StateDB) (*type
 
 	execBlock := block.WithSeal(header) // with seal executed block
 
-	return execBlock, state.NewExecutedEnvironment(execBlock.Hash(), statedb, receipts, allLogs, *usedGas), nil
+	return execBlock, core.NewExecutedBlock(execBlock, statedb, receipts, allLogs), nil
 
 }
 
@@ -232,7 +232,7 @@ func (w *worker) _commitByzantium(interval func(), update bool, start time.Time)
 		select {
 		case w.taskCh <- &task{block: block, createdAt: time.Now()}:
 			log.Info("Commit new byzantium work", "number", block.Number(), "sealhash", w.engine.SealHash(block.Header()),
-				"txs", w.current.tcount, "elapsed", common.PrettyDuration(time.Since(start)), "maxTxsCanSeal", w.pbftCtx.MaxBlockTxs)
+				"elapsed", common.PrettyDuration(time.Since(start)), "maxTxsCanSeal", w.pbftCtx.MaxBlockTxs)
 
 		case <-w.exitCh:
 			log.Info("Worker has exited")

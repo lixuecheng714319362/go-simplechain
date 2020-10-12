@@ -184,7 +184,7 @@ type BlockChain struct {
 	terminateInsert func(common.Hash, uint64) bool // Testing hook used to terminate ancient receipt chain insertion.
 	crossSubscriber simpleSubscriber
 
-	pendingBlocks *lru.Cache // common.Hash to *state.ExecutedEnvironment
+	pendingBlocks *lru.Cache // common.Hash to *ExecutedBlock
 }
 
 // NewBlockChain returns a fully initialised block chain using information
@@ -1540,14 +1540,14 @@ func (bc *BlockChain) InsertChain(chain types.Blocks) (int, error) {
 }
 
 // warning: only usd in the pbft consensus
-//func (bc *BlockChain) InsertPreExecutedBlock(block *types.Block, environment *state.ExecutedEnvironment) error {
+//func (bc *BlockChain) InsertPreExecutedBlock(block *types.Block, environment *state.ExecutedBlock) error {
 //	if block == nil {
 //		return nil
 //	}
 //
 //	bc.wg.Add(1)
 //	bc.chainmu.Lock()
-//	_, err := bc.insertChain(types.Blocks{block}, true, map[common.Hash]*state.ExecutedEnvironment{block.Hash(): environment})
+//	_, err := bc.insertChain(types.Blocks{block}, true, map[common.Hash]*state.ExecutedBlock{block.Hash(): environment})
 //	bc.chainmu.Unlock()
 //	bc.wg.Done()
 //
@@ -1753,7 +1753,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		if bc.pendingBlocks != nil {
 			pb, ok := bc.pendingBlocks.Get(block.Hash())
 			if ok {
-				pendingBlock := pb.(*state.ExecutedEnvironment)
+				pendingBlock := pb.(*ExecutedBlock)
 				executed = true
 				statedb, receipts, logs, usedGas = pendingBlock.Statedb(), pendingBlock.Receipts(), pendingBlock.Logs(), pendingBlock.GasUsed()
 			}
@@ -2398,15 +2398,15 @@ func (bc *BlockChain) SetCrossSubscriber(s trigger.Subscriber) {
 	bc.crossSubscriber = s.(simpleSubscriber) // panic if failed
 }
 
-func (bc *BlockChain) InsertPendingBlock(env *state.ExecutedEnvironment) {
+func (bc *BlockChain) InsertPendingBlock(env *ExecutedBlock) {
 	bc.pendingBlocks.Add(env.BlockHash(), env)
 }
 
-func (bc *BlockChain) GetPendingBlock(hash common.Hash) *state.ExecutedEnvironment {
+func (bc *BlockChain) GetPendingBlock(hash common.Hash) *types.Block {
 	if bc.pendingBlocks != nil {
 		pb, ok := bc.pendingBlocks.Get(hash)
 		if ok {
-			return pb.(*state.ExecutedEnvironment)
+			return pb.(*ExecutedBlock).Block()
 		}
 	}
 	return nil

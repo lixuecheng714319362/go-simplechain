@@ -54,6 +54,8 @@ type Broadcaster interface {
 	FindPeers(map[common.Address]bool) map[common.Address]Peer
 	// FindRoute
 	FindRoute([]common.Address, int, int) map[common.Address]Peer
+	// BroadcastBlock
+	BroadcastBlock(block *types.Block, propagate bool)
 }
 
 type Sealer interface {

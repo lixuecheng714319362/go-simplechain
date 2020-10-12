@@ -24,5 +24,6 @@ import (
 func (c *core) handleFinalCommitted(committed pbft.Conclusion) {
 	logger := c.logger.New("state", c.state)
 	logger.Trace("Received a final committed proposal", "committed", committed)
+	//logger.Error("[report] ** Received a final committed proposal", "committed", committed.Hash())
 	c.startNewRound(common.Big0)
 }

@@ -41,6 +41,8 @@ func (c *core) sendCommitForOldBlock(view *pbft.View, pending, digest common.Has
 func (c *core) broadcastCommit(commit *pbft.Subject, fresh bool) {
 	logger := c.logger.New("state", c.state)
 
+	//logger.Error("send commit", "subject", commit, "fresh", fresh)
+
 	encodedSubject, err := Encode(commit)
 	if err != nil {
 		logger.Error("Failed to encode", "commit", commit)
@@ -100,7 +102,8 @@ func (c *core) verifyCommit(commit *pbft.Subject, src pbft.Validator) error {
 
 func (c *core) acceptCommit(msg *message) error {
 	logger := c.logger.New("from", msg.Address, "state", c.state)
-	//logger.Trace("accept commit msg", "view", c.currentView(), "lockHash", c.current.lockedHash)
+	logger.Trace("accept commit msg", "view", c.currentView(), "lockHash", c.current.lockedHash)
+	//logger.Error("[report] accept commit msg", "view", c.currentView(), "lockHash", c.current.lockedHash)
 
 	// Add the COMMIT message to current round state
 	if err := c.current.Commits.Add(msg); err != nil {

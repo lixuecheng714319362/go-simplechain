@@ -35,7 +35,7 @@ func (c *core) requestMissedTxs(missedTxs []types.MissedTx, val pbft.Validator) 
 		return
 	}
 
-	logger.Trace("[report] requestMissedTxs", "view", missedReq.View, "missed", len(missedTxs))
+	//logger.Trace("[report] requestMissedTxs", "view", missedReq.View, "missed", len(missedTxs))
 
 	c.send(&message{
 		Code: msgGetMissedTxs,
@@ -53,7 +53,7 @@ func (c *core) handleGetMissedTxs(msg *message, src pbft.Validator) error {
 		return errFailedDecodePrepare
 	}
 
-	logger.Trace("[report] handleGetMissedTxs", "view", missed.View, "missed", len(missed.MissedTxs))
+	//logger.Trace("[report] handleGetMissedTxs", "view", missed.View, "missed", len(missed.MissedTxs))
 
 	if err := c.checkMessage(msgGetMissedTxs, missed.View); err != nil {
 		logFn := logger.Warn
@@ -92,7 +92,7 @@ func (c *core) responseMissedTxs(txs types.Transactions, val pbft.Validator) {
 		ReqTxs: txs,
 	}
 
-	logger.Trace("[report] responseMissedTxs", "view", missedResp.View, "missed", len(txs))
+	//logger.Trace("[report] responseMissedTxs", "view", missedResp.View, "missed", len(txs))
 
 	//encMissedResp, err := Encode(missedResp)
 	encMissedResp, err := missedResp.EncodeOffset()
@@ -120,7 +120,7 @@ func (c *core) handleMissedTxs(msg *message, src pbft.Validator) error {
 		return errFailedDecodePrepare
 	}
 
-	logger.Trace("[report] handleMissedTxs", "view", missed.View)
+	//logger.Trace("[report] handleMissedTxs", "view", missed.View)
 
 	if err := c.checkMessage(msgMissedTxs, missed.View); err != nil {
 		logFn := logger.Warn

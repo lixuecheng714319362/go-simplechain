@@ -53,7 +53,7 @@ func (pm *ProtocolManager) handleRemoteTxsByRouter(peer *peer, txr *Transactions
 }
 
 func (pm *ProtocolManager) addRemoteTxsByRouter2TxPool(peer *peer, txr *TransactionsWithRoute) {
-	start := time.Now()
+	//start := time.Now()
 
 	// parallel check sender
 	errs := make([]error, txr.Txs.Len())
@@ -65,8 +65,8 @@ func (pm *ProtocolManager) addRemoteTxsByRouter2TxPool(peer *peer, txr *Transact
 		}
 	})
 
-	senderCost := time.Since(start)
-	addTime := time.Now()
+	//senderCost := time.Since(start)
+	//addTime := time.Now()
 
 	// handle errors and add to txpool
 	for i, err := range errs {
@@ -77,8 +77,8 @@ func (pm *ProtocolManager) addRemoteTxsByRouter2TxPool(peer *peer, txr *Transact
 			log.Trace("Failed adding remote tx by router", "hash", txr.Txs[i].Hash(), "err", err, "peer", peer)
 		}
 	}
-	log.Trace("[report] add remote txs received by router", "size", txr.Txs.Len(),
-		"startTime", start, "senderCost", senderCost, "addCost", time.Since(addTime))
+	//log.Trace("[report] add remote txs received by router", "size", txr.Txs.Len(),
+	//	"startTime", start, "senderCost", senderCost, "addCost", time.Since(addTime))
 }
 
 // BroadcastTxs will propagate a batch of transactions to all peers which are not known to

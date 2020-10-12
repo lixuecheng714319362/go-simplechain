@@ -12,7 +12,7 @@
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with the go-simplechain library. If not, see <http://www.gnu.org/licenses/>.
+// along with the go-simplechain library. If not, see <http://www.gnu.org/licenses/>
 
 package sub
 
@@ -278,6 +278,10 @@ func (pm *ProtocolManager) makeProtocol(version uint) p2p.Protocol {
 	}
 }
 
+func (pm *ProtocolManager) newPeer(pv int, p *p2p.Peer, rw p2p.MsgReadWriter) *peer {
+	return newPeer(pv, p, newMeteredMsgWriter(rw))
+}
+
 func (pm *ProtocolManager) removePeer(id string) {
 	// Short circuit if the peer was already removed
 	peer := pm.peers.Peer(id)
@@ -346,10 +350,6 @@ func (pm *ProtocolManager) Stop() {
 	pm.wg.Wait()
 
 	log.Info("Subchain protocol stopped")
-}
-
-func (pm *ProtocolManager) newPeer(pv int, p *p2p.Peer, rw p2p.MsgReadWriter) *peer {
-	return newPeer(pv, p, newMeteredMsgWriter(rw))
 }
 
 // handle is the callback invoked to manage the life cycle of an eth peer. When
@@ -768,10 +768,29 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		// Schedule all the unknown hashes for retrieval
 		unknown := make(newBlockHashesData, 0, len(announces))
 		for _, block := range announces {
-			if !pm.blockchain.HasPendingBlock(block.Hash) &&
-				!pm.blockchain.HasBlock(block.Hash, block.Number) {
+			if pm.blockchain.HasBlock(block.Hash, block.Number) {
+				continue
+
+			} else if pm.blockchain.HasPendingBlock(block.Hash) {
+				// if we have pending block, add a future task to wait block committing
+				peer, hash, number := p, block.Hash, block.Number
+				time.AfterFunc(time.Millisecond*50, func() {
+					if !pm.blockchain.HasBlock(hash, number) {
+						log.Warn("pending executed block is not inserted", "hash", hash, "number", number)
+						pm.fetcher.Notify(peer.id, hash, number, time.Now(), peer.RequestOneHeader, peer.RequestBodies)
+					}
+				})
+
+			} else {
 				unknown = append(unknown, block)
 			}
+			//if pm.blockchain.HasPendingBlock(block.Hash) {
+			//	//TODO: timeout node need insert block again, but no committed seals exist in pending block
+			//	pm.blockchain.InsertChain(types.Blocks{pm.blockchain.GetPendingBlock(block.Hash)})
+			//	if pm.blockchain.HasBlock(block.Hash, block.Number) {
+			//		continue
+			//	}
+			//}
 		}
 		for _, block := range unknown {
 			pm.fetcher.Notify(p.id, block.Hash, block.Number, time.Now(), p.RequestOneHeader, p.RequestBodies)

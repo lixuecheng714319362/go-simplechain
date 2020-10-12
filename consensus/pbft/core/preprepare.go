@@ -21,14 +21,15 @@ import (
 
 	"github.com/simplechain-org/go-simplechain/consensus"
 	"github.com/simplechain-org/go-simplechain/consensus/pbft"
+	"github.com/simplechain-org/go-simplechain/log"
 )
 
 func (c *core) sendPreprepare(request *pbft.Request) {
 	logger := c.logger.New("state", c.state)
 
-	//defer func(start time.Time) {
-	//	log.Report("send pre-prepare", "cost", time.Since(start))
-	//}(time.Now())
+	defer func(start time.Time) {
+		log.Report("send pre-prepare", "cost", time.Since(start))
+	}(time.Now())
 
 	// If I'm the proposer and I have the same sequence with the proposal
 	if c.current.Sequence().Cmp(request.Proposal.Number()) == 0 && c.IsProposer() {
@@ -132,6 +133,7 @@ func (c *core) checkPreprepareMsg(msg *message, src pbft.Validator, view *pbft.V
 			}
 		}
 		logger.Trace("checkMessage failed", "code", msg.Code, "view", view)
+		//logger.Error("[report] ## checkMessage failed", "code", msg.Code, "err", err)
 		return err
 	}
 

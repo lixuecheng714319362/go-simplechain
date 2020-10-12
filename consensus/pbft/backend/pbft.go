@@ -29,7 +29,7 @@ import (
 	"github.com/simplechain-org/go-simplechain/common/math"
 	"github.com/simplechain-org/go-simplechain/consensus"
 	"github.com/simplechain-org/go-simplechain/consensus/pbft"
-	istanbulCore "github.com/simplechain-org/go-simplechain/consensus/pbft/core"
+	pbftCore "github.com/simplechain-org/go-simplechain/consensus/pbft/core"
 	"github.com/simplechain-org/go-simplechain/consensus/pbft/validator"
 	"github.com/simplechain-org/go-simplechain/core/state"
 	"github.com/simplechain-org/go-simplechain/core/types"
@@ -118,7 +118,7 @@ func (sb *backend) Signers(header *types.Header) ([]common.Address, error) {
 	}
 
 	var addrs []common.Address
-	proposalSeal := istanbulCore.PrepareCommittedSeal(header.Hash())
+	proposalSeal := pbftCore.PrepareCommittedSeal(header.Hash())
 	//proposalSeal := istanbulCore.PrepareCommittedSeal(header.PendingHash()) //FIXME: should commit signature with hash not pendingHash
 
 	// 1. Get committed seals from current header

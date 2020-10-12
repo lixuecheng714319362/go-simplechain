@@ -48,6 +48,8 @@ var (
 // blockRetrievalFn is a callback type for retrieving a block from the local chain.
 type blockRetrievalFn func(common.Hash) *types.Block
 
+type pendingBlockRetrievalFn func(common.Hash) *types.Block
+
 // headerRequesterFn is a callback type for sending a header retrieval request.
 type headerRequesterFn func(common.Hash) error
 
@@ -102,6 +104,13 @@ type bodyFilterTask struct {
 	time         time.Time              // Arrival time of the blocks' contents
 }
 
+//TODO(yc)
+type extraDeliverTask struct {
+	peer  string
+	extra *types.ByzantineExtra
+	time  time.Time
+}
+
 // inject represents a schedules import operation.
 type inject struct {
 	origin string
@@ -117,6 +126,7 @@ type Fetcher struct {
 
 	headerFilter chan chan *headerFilterTask
 	bodyFilter   chan chan *bodyFilterTask
+	extraDeliver chan chan *extraDeliverTask //TODO(yc)
 
 	done chan common.Hash
 	quit chan struct{}
@@ -134,13 +144,14 @@ type Fetcher struct {
 	queued map[common.Hash]*inject // Set of already queued blocks (to dedupe imports)
 
 	// Callbacks
-	getBlock       blockRetrievalFn   // Retrieves a block from the local chain
-	verifyHeader   headerVerifierFn   // Checks if a block's headers have a valid proof of work
-	broadcastBlock blockBroadcasterFn // Broadcasts a block to connected peers
-	chainHeight    chainHeightFn      // Retrieves the current chain's height
-	insertChain    chainInsertFn      // Injects a batch of blocks into the chain
-	dropPeer       peerDropFn         // Drops a peer for misbehaving
-	peerAddress    peerAddressFn      // Get address of peer
+	getBlock        blockRetrievalFn // Retrieves a block from the local chain
+	getPendingBlock pendingBlockRetrievalFn
+	verifyHeader    headerVerifierFn   // Checks if a block's headers have a valid proof of work
+	broadcastBlock  blockBroadcasterFn // Broadcasts a block to connected peers
+	chainHeight     chainHeightFn      // Retrieves the current chain's height
+	insertChain     chainInsertFn      // Injects a batch of blocks into the chain
+	dropPeer        peerDropFn         // Drops a peer for misbehaving
+	peerAddress     peerAddressFn      // Get address of peer
 
 	// Testing hooks
 	announceChangeHook func(common.Hash, bool) // Method to call upon adding or deleting a hash from the announce list
@@ -278,6 +289,32 @@ func (f *Fetcher) FilterBodies(peer string, transactions [][]*types.Transaction,
 	case <-f.quit:
 		return nil, nil
 	}
+}
+
+func (f *Fetcher) DeliverExtra(peer string, extra *types.ByzantineExtra, time time.Time) {
+	log.Trace("Deliver extra", "peer", peer, "extra", extra)
+
+	deliver := make(chan *extraDeliverTask)
+
+	select {
+	case f.extraDeliver <- deliver:
+	case <-f.quit:
+		return
+	}
+
+	select {
+	case deliver <- &extraDeliverTask{peer: peer, extra: extra, time: time}:
+	case <-f.quit:
+		return
+	}
+
+	//TODO(yc): deliver result
+	//select {
+	//case task := <-deliver:
+	//	//return task.transactions, task.uncles
+	//case <-f.quit:
+	//	return
+	//}
 }
 
 // Loop is the main fetcher loop, checking and processing various notification
@@ -661,7 +698,7 @@ func (f *Fetcher) insert(peer string, block *types.Block) {
 		case nil:
 			// All ok, quickly propagate to our peers
 			propBroadcastOutTimer.UpdateSince(block.ReceivedAt)
-			go f.broadcastBlock(block, true)
+			//go f.broadcastBlock(block, true) //TODO(yc): we'd not propagate full block
 
 		case consensus.ErrFutureBlock:
 			// Weird future block, don't fail, but neither propagate

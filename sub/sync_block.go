@@ -5,27 +5,10 @@ import (
 	"github.com/simplechain-org/go-simplechain/core"
 	"github.com/simplechain-org/go-simplechain/core/types"
 	"github.com/simplechain-org/go-simplechain/log"
-	"github.com/simplechain-org/go-simplechain/rlp"
 	"math"
 	"math/big"
 	"time"
 )
-
-func (pm *ProtocolManager) BroadcastBlock2(block *types.Block) {
-	peers := pm.peers.PeersWithoutBlock(block.Hash())
-
-	transferLen := int(math.Sqrt(float64(len(peers))))
-	if transferLen < minBroadcastPeers {
-		transferLen = minBroadcastPeers
-	}
-	if transferLen > len(peers) {
-		transferLen = len(peers)
-	}
-	transfer := peers[:transferLen]
-	for _, peer := range transfer {
-		peer.AsyncSendNewBlock(block, block.DeprecatedTd())
-	}
-}
 
 // BroadcastBlock will either propagate a block to a subset of it's peers, or
 // will only announce it's availability (depending what's requested).
@@ -64,19 +47,20 @@ func (pm *ProtocolManager) BroadcastBlock(block *types.Block, propagate bool) {
 			peer.AsyncSendNewBlockHash(block)
 		}
 		log.Trace("Announced block", "hash", hash, "recipients", len(peers), "duration", common.PrettyDuration(time.Since(block.ReceivedAt)))
+		//log.Error("[report] Announced block", "hash", hash, "all", pm.peers.Len(), "recipients", len(peers), "duration", common.PrettyDuration(time.Since(block.ReceivedAt)))
 	}
 }
 
 // Mined broadcast loop
 func (pm *ProtocolManager) minedBroadcastLoop() {
-	var lastTime = time.Now()
+	//var lastTime = time.Now()
 	// automatically stops if unsubscribe
 	for obj := range pm.minedBlockSub.Chan() {
 		if ev, ok := obj.Data.(core.NewMinedBlockEvent); ok {
 			//TODO report
-			b, _ := rlp.EncodeToBytes(ev.Block)
-			log.Trace("[report] minedBroadcastLoop", "used", time.Since(lastTime), "size", common.StorageSize(len(b)).String())
-			lastTime = time.Now()
+			//b, _ := rlp.EncodeToBytes(ev.Block)
+			//log.Trace("[report] minedBroadcastLoop", "used", time.Since(lastTime), "size", common.StorageSize(len(b)).String())
+			//lastTime = time.Now()
 
 			//pm.BroadcastBlock2(ev.Block)
 			//pm.BroadcastBlock(ev.Block, true)  // First propagate block to peers
@@ -85,4 +69,3 @@ func (pm *ProtocolManager) minedBroadcastLoop() {
 		}
 	}
 }
-

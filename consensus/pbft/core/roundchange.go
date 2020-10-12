@@ -23,13 +23,13 @@ import (
 	"github.com/simplechain-org/go-simplechain/consensus/pbft"
 )
 
-// sendNextRoundChange sends the ROUND CHANGE message with current round + 1
+// sends the ROUND CHANGE message with current round + 1
 func (c *core) sendNextRoundChange() {
 	cv := c.currentView()
 	c.sendRoundChange(new(big.Int).Add(cv.Round, common.Big1))
 }
 
-// sendRoundChange sends the ROUND CHANGE message with the given round
+// sends the ROUND CHANGE message with the given round
 func (c *core) sendRoundChange(round *big.Int) {
 	logger := c.logger.New("state", c.state)
 
@@ -62,6 +62,9 @@ func (c *core) sendRoundChange(round *big.Int) {
 		Msg:  payload,
 	}
 
+	logger.Trace("send roundChange message", "view", cv)
+	//logger.Error("[report] send roundChange message", "view", cv)
+
 	//c.broadcast(rcMsg, true)
 	c.broadcast(rcMsg, false)
 	c.acceptAndCheckRoundChange(rcMsg, rc)
@@ -77,7 +80,14 @@ func (c *core) handleRoundChange(msg *message, src pbft.Validator) error {
 		return errInvalidMessage
 	}
 
+	logger.Trace("handle roundChange message", "rcView", rc.View, "waitingForRoundChange", c.waitingForRoundChange)
+	//logger.Error("[report] handle roundChange message", "rcView", rc.View, "waitingForRoundChange", c.waitingForRoundChange)
+
 	if err := c.checkMessage(msgRoundChange, rc.View); err != nil {
+		switch err {
+		case errOldMessage:
+			//TODO(yc): resend old proposal from rc.view to lastProposal.view
+		}
 		return err
 	}
 
@@ -86,10 +96,12 @@ func (c *core) handleRoundChange(msg *message, src pbft.Validator) error {
 
 func (c *core) acceptAndCheckRoundChange(msg *message, rc *pbft.Subject) error {
 	logger := c.logger.New("state", c.state, "from", msg.Address)
-	//logger.Trace("accept round change", "view", c.currentView())
 
 	cv := c.currentView()
 	roundView := rc.View
+
+	logger.Trace("accept round change", "cv", cv, "rv", roundView)
+	//logger.Error("[report] ^^ accept round change", "cv", cv, "rv", roundView)
 
 	// Add the ROUND CHANGE message to its message set and return how many
 	// messages we've got with the same round number and sequence number.
@@ -108,10 +120,12 @@ func (c *core) acceptAndCheckRoundChange(msg *message, rc *pbft.Subject) error {
 			c.sendRoundChange(roundView.Round)
 		}
 		return nil
+
 	} else if num == c.Confirmations() && (c.waitingForRoundChange || cv.Round.Cmp(roundView.Round) < 0) {
 		// We've received 2f+1/Ceil(2N/3) ROUND CHANGE messages, start a new round immediately.
 		c.startNewRound(roundView.Round)
 		return nil
+
 	} else if cv.Round.Cmp(roundView.Round) < 0 {
 		// Only gossip the message with current round to other validators.
 		return errIgnored

@@ -327,6 +327,8 @@ func (sb *backend) Commit(conclusion pbft.Conclusion, commitSeals [][]byte) erro
 
 	} else if sb.broadcaster != nil {
 		sb.broadcaster.Enqueue(fetcherID, block)
+		// broadcast the block announce
+		//sb.broadcaster.BroadcastBlock(block, false)
 	}
 
 	sb.logger.Warn("Committed new pbft block", reportCtx...)

@@ -64,6 +64,13 @@ type Request struct {
 	Proposal Proposal // always common proposal (block with all txs)
 }
 
+func (r *Request) TerminalString() string {
+	if r == nil {
+		return "nil"
+	}
+	return fmt.Sprintf("hash: %s, number: %d", r.Proposal.PendingHash().TerminalString(), r.Proposal.Number())
+}
+
 // View includes a round number and a sequence number.
 // Sequence is the block number we'd like to commit.
 // Each round has a number and is composed by 3 steps: preprepare, prepare and commit.

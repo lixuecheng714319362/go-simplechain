@@ -29,6 +29,8 @@ func (c *core) sendPrepare() {
 
 	sub := c.current.Subject()
 
+	//logger.Error("send prepare", "subject", sub)
+
 	encodedSubject, err := Encode(sub)
 	if err != nil {
 		logger.Error("Failed to encode", "subject", sub)
@@ -40,10 +42,9 @@ func (c *core) sendPrepare() {
 		Msg:  encodedSubject,
 	}
 
-	c.broadcast(prepareMsg, false)
+	//c.broadcast(prepareMsg, true)
 
-	//_, src := c.valSet.GetByAddress(c.address)
-	//c.handlePrepare(prepareMsg, src)
+	c.broadcast(prepareMsg, false)
 	c.acceptPrepare(prepareMsg, sub.View)
 	c.checkAndCommitPrepare(sub)
 }
@@ -87,7 +88,8 @@ func (c *core) verifyPrepare(prepare *pbft.Subject, src pbft.Validator) error {
 
 func (c *core) acceptPrepare(msg *message, view *pbft.View) error {
 	logger := c.logger.New("from", msg.Address, "state", c.state)
-	//logger.Trace("accept prepare msg", "view", view, "lockHash", c.current.lockedHash)
+	logger.Trace("accept prepare msg", "view", view, "lockHash", c.current.lockedHash)
+	//logger.Error("[report] accept prepare msg", "view", view, "lockHash", c.current.lockedHash)
 
 	// Add the PREPARE message to current round state
 	if err := c.current.Prepares.Add(msg); err != nil {
