@@ -92,7 +92,8 @@ func newTester() *fetcherTester {
 		blocks: map[common.Hash]*types.Block{genesis.Hash(): genesis},
 		drops:  make(map[string]bool),
 	}
-	tester.fetcher = New(tester.getBlock, tester.verifyHeader, tester.broadcastBlock, tester.chainHeight, tester.insertChain, tester.dropPeer, tester.peerAddress)
+	tester.fetcher = New(tester.getBlock, tester.verifyHeader, tester.broadcastBlock, tester.chainHeight,
+		tester.insertChain, tester.dropPeer, tester.getPendingBlock, tester.peerAddress)
 	tester.fetcher.Start()
 
 	return tester
@@ -104,6 +105,11 @@ func (f *fetcherTester) getBlock(hash common.Hash) *types.Block {
 	defer f.lock.RUnlock()
 
 	return f.blocks[hash]
+}
+
+func (f *fetcherTester) getPendingBlock(hash common.Hash) *types.Block {
+	//TODO(yc): getPendingBlock on pbft consensus
+	return nil
 }
 
 // verifyHeader is a nop placeholder for the block header verification.

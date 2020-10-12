@@ -185,7 +185,7 @@ func (c *core) handleCheckedMsg(msg *message, src pbft.Validator) (bool, error) 
 		return true, testBacklog(c.handleRoundChange(msg, src))
 
 	case msgLightPreprepare:
-		log.Report("> handleCheckedMsg msgLightPreprepare")
+		log.Report("handleCheckedMsg msgLightPreprepare")
 		if c.config.LightMode {
 			return true, testBacklog(c.handleLightPrepare(msg, src))
 		}

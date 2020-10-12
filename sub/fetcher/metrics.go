@@ -40,4 +40,6 @@ var (
 	headerFilterOutMeter = metrics.NewRegisteredMeter("sub/fetcher/filter/headers/out", nil)
 	bodyFilterInMeter    = metrics.NewRegisteredMeter("sub/fetcher/filter/bodies/in", nil)
 	bodyFilterOutMeter   = metrics.NewRegisteredMeter("sub/fetcher/filter/bodies/out", nil)
+	sealFilterInMeter =  metrics.NewRegisteredMeter("sub/fetcher/filter/seals/in", nil)
+	sealFilterOutMeter =  metrics.NewRegisteredMeter("sub/fetcher/filter/seals/out", nil)
 )

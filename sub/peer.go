@@ -382,16 +382,23 @@ func (p *peer) RequestOneHeader(hash common.Hash) error {
 	return p2p.Send(p.rw, GetBlockHeadersMsg, &getBlockHeadersData{Origin: hashOrNumber{Hash: hash}, Amount: uint64(1), Skip: uint64(0), Reverse: false})
 }
 
-func (p *peer) SendBlockExtra(data []byte) error {
-	//TODO(yc)
-	return nil
+func (p *peer) SendBlockSeals(hashes []common.Hash, numbers []uint64, seals []types.ByzantineSeals) error {
+	p.Log().Error("[Fetching] Send block committed seals", "len", len(seals), "hash", hashes[0])
+	data := make(blockSealsData, 0, len(hashes))
+	for i := 0; i < len(hashes) && i < len(seals); i++ {
+		data = append(data, &blockSeals{BlockHash: hashes[i], BlockNumber: numbers[i], CommittedSeal: seals[i]})
+	}
+	return p2p.Send(p.rw, BlockSealsMsg, data)
 }
 
-func (p *peer) RequestBlockExtra(hash common.Hash) error {
-	//TODO(yc)
-	return nil
+func (p *peer) RequestBlockSeal(hash common.Hash) error {
+	return p.RequestBlockSeals([]common.Hash{hash})
 }
 
+func (p *peer) RequestBlockSeals(hashes []common.Hash) error {
+	p.Log().Debug("Fetching block committed seals", "count", len(hashes))
+	return p2p.Send(p.rw, GetBlockSealsMsg, hashes)
+}
 
 // RequestHeadersByHash fetches a batch of blocks' headers corresponding to the
 // specified header query, based on the hash of an origin block.

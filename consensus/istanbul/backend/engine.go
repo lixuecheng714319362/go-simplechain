@@ -686,11 +686,11 @@ func ecrecover(header *types.Header) (common.Address, error) {
 func prepareExtra(header *types.Header, vals []common.Address) ([]byte, error) {
 	var buf bytes.Buffer
 
-	// compensate the lack bytes if header.Extra is not enough IstanbulExtraVanity bytes.
-	if len(header.Extra) < types.IstanbulExtraVanity {
-		header.Extra = append(header.Extra, bytes.Repeat([]byte{0x00}, types.IstanbulExtraVanity-len(header.Extra))...)
+	// compensate the lack bytes if header.Extra is not enough ByzantineExtraVanity bytes.
+	if len(header.Extra) < types.ByzantineExtraVanity {
+		header.Extra = append(header.Extra, bytes.Repeat([]byte{0x00}, types.ByzantineExtraVanity-len(header.Extra))...)
 	}
-	buf.Write(header.Extra[:types.IstanbulExtraVanity])
+	buf.Write(header.Extra[:types.ByzantineExtraVanity])
 
 	ist := &types.ByzantineExtra{
 		Validators:    vals,
@@ -709,7 +709,7 @@ func prepareExtra(header *types.Header, vals []common.Address) ([]byte, error) {
 // writeSeal writes the extra-data field of the given header with the given seals.
 // suggest to rename to writeSeal.
 func writeSeal(h *types.Header, seal []byte) error {
-	if len(seal)%types.IstanbulExtraSeal != 0 {
+	if len(seal)%types.ByzantineExtraSeal != 0 {
 		return errInvalidSignature
 	}
 
@@ -724,7 +724,7 @@ func writeSeal(h *types.Header, seal []byte) error {
 		return err
 	}
 
-	h.Extra = append(h.Extra[:types.IstanbulExtraVanity], payload...)
+	h.Extra = append(h.Extra[:types.ByzantineExtraVanity], payload...)
 	return nil
 }
 
@@ -735,7 +735,7 @@ func writeCommittedSeals(h *types.Header, committedSeals [][]byte) error {
 	}
 
 	for _, seal := range committedSeals {
-		if len(seal) != types.IstanbulExtraSeal {
+		if len(seal) != types.ByzantineExtraSeal {
 			return errInvalidCommittedSeals
 		}
 	}
@@ -753,6 +753,6 @@ func writeCommittedSeals(h *types.Header, committedSeals [][]byte) error {
 		return err
 	}
 
-	h.Extra = append(h.Extra[:types.IstanbulExtraVanity], payload...)
+	h.Extra = append(h.Extra[:types.ByzantineExtraVanity], payload...)
 	return nil
 }

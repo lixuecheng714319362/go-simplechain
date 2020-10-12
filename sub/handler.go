@@ -235,7 +235,8 @@ func NewProtocolManager(config *params.ChainConfig, checkpoint *params.TrustedCh
 		}
 		return n, err
 	}
-	manager.fetcher = fetcher.New(blockchain.GetBlockByHash, validator, manager.BroadcastBlock, heighter, inserter, manager.removePeer, manager.peers.Address)
+	manager.fetcher = fetcher.New(blockchain.GetBlockByHash, validator, manager.BroadcastBlock, heighter, inserter,
+		manager.removePeer, blockchain.GetPendingBlock, manager.peers.Address)
 
 	return manager, nil
 }
@@ -777,7 +778,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 				time.AfterFunc(time.Millisecond*50, func() {
 					if !pm.blockchain.HasBlock(hash, number) {
 						log.Warn("pending executed block is not inserted", "hash", hash, "number", number)
-						pm.fetcher.Notify(peer.id, hash, number, time.Now(), peer.RequestOneHeader, peer.RequestBodies)
+						pm.fetcher.Notify(peer.id, hash, number, time.Now(), peer.RequestBlockSeal, peer.RequestBodies)
 					}
 				})
 
@@ -861,14 +862,67 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			return errResp(ErrDecode, "msg %v: %v", msg, err)
 		}
 
-		//log.Error("[debug] TransactionRouteMsg txs", "len", txr.Txs.Len(), "N",runtime.GOMAXPROCS(0))
-
-		//if err := msg.Decode(&txr); err != nil {
-		//	return errResp(ErrDecode, "msg %v: %v", msg, err)
-		//}
-
 		pm.handleRemoteTxsByRouter(p, txr)
 		pm.addRemoteTxsByRouter2TxPool(p, txr)
+
+	case msg.Code == GetBlockSealsMsg:
+		// Decode the retrieval message
+		msgStream := rlp.NewStream(msg.Payload, uint64(msg.Size))
+		if _, err := msgStream.List(); err != nil {
+			return err
+		}
+		// Gather blocks until the fetch or network limits is reached
+		var (
+			hash    common.Hash
+			hashes  []common.Hash
+			numbers []uint64
+			seals   []types.ByzantineSeals
+		)
+		for len(seals) < downloader.MaxBlockFetch {
+			// Retrieve the hash of the next block
+			if err := msgStream.Decode(&hash); err == rlp.EOL {
+				break
+			} else if err != nil {
+				return errResp(ErrDecode, "msg %v: %v", msg, err)
+			}
+			// Retrieve the requested block body, stopping if enough was found
+			if number, seal := pm.blockchain.GetCommittedSeals(hash); len(seal) != 0 {
+				hashes = append(hashes, hash)
+				numbers = append(numbers, number)
+				seals = append(seals, seal)
+			}
+		}
+		return p.SendBlockSeals(hashes, numbers, seals)
+
+	case msg.Code == BlockSealsMsg:
+		// A batch of block seals arrived to one of our previous requests
+		var request blockSealsData
+		if err := msg.Decode(&request); err != nil {
+			return errResp(ErrDecode, "msg %v: %v", msg, err)
+		}
+		// Deliver them all to the downloader for queuing
+		hashes := make([]common.Hash, len(request))
+		numbers := make([]uint64, len(request))
+		committedSeals := make([]types.ByzantineSeals, len(request))
+		hash2number := make(map[common.Hash]uint64, len(request))
+
+		for i, seal := range request {
+			hashes[i] = seal.BlockHash
+			numbers[i] = seal.BlockNumber
+			committedSeals[i] = seal.CommittedSeal
+			hash2number[seal.BlockHash] = seal.BlockNumber
+		}
+		// Filter out any explicitly requested seals
+		filter := len(hashes) > 0 && len(committedSeals) > 0 && len(hashes) == len(committedSeals)
+		if filter {
+			hashes, _ = pm.fetcher.FilterSeals(p.id, hashes, committedSeals, time.Now())
+		}
+		if len(hashes) > 0 || !filter {
+			//deliver the rest remains
+			for _, hash := range hashes {
+				pm.fetcher.Notify(p.id, hash, hash2number[hash], time.Now(), p.RequestOneHeader, p.RequestBodies)
+			}
+		}
 
 	default:
 		return errResp(ErrInvalidMsgCode, "%v", msg.Code)

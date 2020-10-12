@@ -2411,3 +2411,14 @@ func (bc *BlockChain) GetPendingBlock(hash common.Hash) *types.Block {
 	}
 	return nil
 }
+
+func (bc *BlockChain) GetCommittedSeals(hash common.Hash) (uint64, types.ByzantineSeals) {
+	if header := bc.GetHeaderByHash(hash); header != nil {
+		extra, err := types.ExtractByzantineExtra(header)
+		if err != nil {
+			return 0, nil
+		}
+		return header.Number.Uint64(), extra.CommittedSeal
+	}
+	return 0, nil
+}

@@ -105,10 +105,11 @@ type bodyFilterTask struct {
 }
 
 //TODO(yc)
-type extraDeliverTask struct {
-	peer  string
-	extra *types.ByzantineExtra
-	time  time.Time
+type committedSealFilterTask struct {
+	peer           string
+	hashes         []common.Hash
+	committedSeals []types.ByzantineSeals
+	time           time.Time
 }
 
 // inject represents a schedules import operation.
@@ -126,7 +127,7 @@ type Fetcher struct {
 
 	headerFilter chan chan *headerFilterTask
 	bodyFilter   chan chan *bodyFilterTask
-	extraDeliver chan chan *extraDeliverTask //TODO(yc)
+	sealFilter   chan chan *committedSealFilterTask //TODO(yc)
 
 	done chan common.Hash
 	quit chan struct{}
@@ -137,6 +138,7 @@ type Fetcher struct {
 	fetching   map[common.Hash]*announce   // Announced blocks, currently fetching
 	fetched    map[common.Hash][]*announce // Blocks with headers fetched, scheduled for body retrieval
 	completing map[common.Hash]*announce   // Blocks with headers, currently body-completing
+	//committing map[common.Hash]*announce   // Blocks with pending executed env, currently committing
 
 	// Block cache
 	queue  *prque.Prque            // Queue containing the import operations (block number sorted)
@@ -162,30 +164,33 @@ type Fetcher struct {
 }
 
 // New creates a block fetcher to retrieve blocks based on hash announcements.
-func New(getBlock blockRetrievalFn, verifyHeader headerVerifierFn, broadcastBlock blockBroadcasterFn,
-	chainHeight chainHeightFn, insertChain chainInsertFn, dropPeer peerDropFn, peerAddress peerAddressFn) *Fetcher {
+func New(getBlock blockRetrievalFn, verifyHeader headerVerifierFn, broadcastBlock blockBroadcasterFn, chainHeight chainHeightFn,
+	insertChain chainInsertFn, dropPeer peerDropFn, getPendingBlock pendingBlockRetrievalFn, peerAddress peerAddressFn) *Fetcher {
 	return &Fetcher{
-		notify:         make(chan *announce),
-		inject:         make(chan *inject),
-		headerFilter:   make(chan chan *headerFilterTask),
-		bodyFilter:     make(chan chan *bodyFilterTask),
-		done:           make(chan common.Hash),
-		quit:           make(chan struct{}),
-		announces:      make(map[string]int),
-		announced:      make(map[common.Hash][]*announce),
-		fetching:       make(map[common.Hash]*announce),
-		fetched:        make(map[common.Hash][]*announce),
-		completing:     make(map[common.Hash]*announce),
-		queue:          prque.New(nil),
-		queues:         make(map[string]int),
-		queued:         make(map[common.Hash]*inject),
-		getBlock:       getBlock,
-		verifyHeader:   verifyHeader,
-		broadcastBlock: broadcastBlock,
-		chainHeight:    chainHeight,
-		insertChain:    insertChain,
-		dropPeer:       dropPeer,
-		peerAddress:    peerAddress,
+		notify:       make(chan *announce),
+		inject:       make(chan *inject),
+		headerFilter: make(chan chan *headerFilterTask),
+		bodyFilter:   make(chan chan *bodyFilterTask),
+		sealFilter:   make(chan chan *committedSealFilterTask),
+		done:         make(chan common.Hash),
+		quit:         make(chan struct{}),
+		announces:    make(map[string]int),
+		announced:    make(map[common.Hash][]*announce),
+		fetching:     make(map[common.Hash]*announce),
+		fetched:      make(map[common.Hash][]*announce),
+		completing:   make(map[common.Hash]*announce),
+		//committing:      make(map[common.Hash]*announce),
+		queue:           prque.New(nil),
+		queues:          make(map[string]int),
+		queued:          make(map[common.Hash]*inject),
+		getBlock:        getBlock,
+		getPendingBlock: getPendingBlock,
+		verifyHeader:    verifyHeader,
+		broadcastBlock:  broadcastBlock,
+		chainHeight:     chainHeight,
+		insertChain:     insertChain,
+		dropPeer:        dropPeer,
+		peerAddress:     peerAddress,
 	}
 }
 
@@ -291,30 +296,29 @@ func (f *Fetcher) FilterBodies(peer string, transactions [][]*types.Transaction,
 	}
 }
 
-func (f *Fetcher) DeliverExtra(peer string, extra *types.ByzantineExtra, time time.Time) {
-	log.Trace("Deliver extra", "peer", peer, "extra", extra)
+func (f *Fetcher) FilterSeals(peer string, hashes []common.Hash, committedSeals []types.ByzantineSeals, time time.Time) ([]common.Hash, []types.ByzantineSeals) {
+	log.Trace("filter committed seals", "peer", peer, "seals", committedSeals)
 
-	deliver := make(chan *extraDeliverTask)
+	deliver := make(chan *committedSealFilterTask)
 
 	select {
-	case f.extraDeliver <- deliver:
+	case f.sealFilter <- deliver:
 	case <-f.quit:
-		return
+		return nil, nil
 	}
 
 	select {
-	case deliver <- &extraDeliverTask{peer: peer, extra: extra, time: time}:
+	case deliver <- &committedSealFilterTask{peer: peer, hashes: hashes, committedSeals: committedSeals, time: time}:
 	case <-f.quit:
-		return
+		return nil, nil
 	}
 
-	//TODO(yc): deliver result
-	//select {
-	//case task := <-deliver:
-	//	//return task.transactions, task.uncles
-	//case <-f.quit:
-	//	return
-	//}
+	select {
+	case task := <-deliver:
+		return task.hashes, task.committedSeals
+	case <-f.quit:
+		return nil, nil
+	}
 }
 
 // Loop is the main fetcher loop, checking and processing various notification
@@ -426,17 +430,15 @@ func (f *Fetcher) loop() {
 			for peer, hashes := range request {
 				log.Trace("Fetching scheduled headers", "peer", peer, "addr", f.peerAddress(peer), "list", hashes)
 
-				// Create a closure of the fetch and schedule in on a new thread
-				fetchHeader, hashes := f.fetching[hashes[0]].fetchHeader, hashes
-				go func() {
+				go func(hashes []common.Hash) {
 					if f.fetchingHook != nil {
 						f.fetchingHook(hashes)
 					}
 					for _, hash := range hashes {
 						headerFetchMeter.Mark(1)
-						fetchHeader(hash) // Suboptimal, but protocol doesn't allow batch header retrievals
+						f.fetching[hash].fetchHeader(hash) // Suboptimal, but protocol doesn't allow batch header retrievals
 					}
-				}()
+				}(hashes)
 			}
 			// Schedule the next fetch if blocks are still pending
 			f.rescheduleFetch(fetchTimer)
@@ -459,7 +461,7 @@ func (f *Fetcher) loop() {
 			// Send out all block body requests
 			for peer, hashes := range request {
 				//TODO
-				log.Warn("Fetching scheduled bodies", "peer", peer, "address", f.peerAddress(peer), "list", hashes)
+				log.Warn("Fetching scheduled bodies", "peer", peer, "address", f.peerAddress(peer), "hash", hashes[0])
 
 				// Create a closure of the fetch and schedule in on a new thread
 				if f.completingHook != nil {
@@ -601,6 +603,62 @@ func (f *Fetcher) loop() {
 			// Schedule the retrieved blocks for ordered import
 			for _, block := range blocks {
 				if announce := f.completing[block.Hash()]; announce != nil {
+					f.enqueue(announce.origin, block)
+				}
+			}
+
+		case filter := <-f.sealFilter:
+			var task *committedSealFilterTask
+			select {
+			case task = <-filter:
+			case <-f.quit:
+				return
+			}
+			//headerFilterInMeter.Mark(int64(len(task.headers))) //TODO(yc): meter
+
+			unknownHashes, blocks := []common.Hash{}, []*types.Block{}
+			for i := 0; i < len(task.hashes) && i < len(task.committedSeals); i++ {
+				hash := task.hashes[i]
+				seals := task.committedSeals[i]
+				if announce := f.fetching[hash]; announce != nil && announce.origin == task.peer {
+					if f.getBlock(hash) != nil {
+						f.forgetHash(hash)
+						continue
+					}
+					pending := f.getPendingBlock(hash)
+					if pending == nil {
+						//TODO(yc): missing pending executed block
+						log.Warn("Missing pending executed block, block seals fetching interrupt", "hash", hash)
+						f.forgetHash(hash)
+						unknownHashes = append(unknownHashes, hash)
+						continue
+					}
+					h := pending.Header()
+					err := types.WriteCommittedSeals(h, seals)
+					if err != nil {
+						//TODO(yc): handle invalid committed seals
+						log.Warn("Invalid committed seals, block seals fetching interrupt", "hash", hash, "err", err)
+						f.dropPeer(announce.origin)
+						f.forgetHash(hash)
+						continue
+					}
+					blocks = append(blocks, pending.WithSeal(h))
+
+				} else {
+					unknownHashes = append(unknownHashes, hash)
+				}
+			}
+
+			//TODO(yc): meter
+			select {
+			case filter <- &committedSealFilterTask{hashes: unknownHashes, time: task.time}:
+			case <-f.quit:
+				return
+			}
+
+			// Schedule the retrieved blocks for ordered import
+			for _, block := range blocks {
+				if announce := f.fetching[block.Hash()]; announce != nil {
 					f.enqueue(announce.origin, block)
 				}
 			}

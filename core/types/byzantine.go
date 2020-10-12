@@ -31,8 +31,8 @@ var (
 	// IstanbulDigest represents a hash of "Parallel byzantine fault tolerance"
 	PbftDigest = common.HexToHash("0x72616c6c656c2062797a616e74696e65206661756c7420746f6c6572616e6365")
 
-	IstanbulExtraVanity = 32 // Fixed number of extra-data bytes reserved for validator vanity
-	IstanbulExtraSeal   = 65 // Fixed number of extra-data bytes reserved for validator seal
+	ByzantineExtraVanity = 32 // Fixed number of extra-data bytes reserved for validator vanity
+	ByzantineExtraSeal   = 65 // Fixed number of extra-data bytes reserved for validator seal
 
 	// ErrInvalidByzantineHeaderExtra is returned if the length of extra-data is less than 32 bytes
 	ErrInvalidByzantineHeaderExtra = errors.New("invalid byzantine header extra-data")
@@ -40,13 +40,17 @@ var (
 	ErrFailToFetchLightMissedTxs = errors.New("failed to fetch light block's missed txs")
 	// ErrFailToFillLightMissedTxs
 	ErrFailToFillLightMissedTxs = errors.New("failed to fill light block's missed txs")
+
+	errInvalidCommittedSeals = errors.New("invalid committed seals")
 )
 
 type ByzantineExtra struct {
 	Validators    []common.Address
-	Seal          []byte   // signature for sealer
-	CommittedSeal [][]byte // Pbft signatures, ignore in the Hash calculation
+	Seal          []byte         // signature for sealer
+	CommittedSeal ByzantineSeals // Pbft signatures, ignore in the Hash calculation
 }
+
+type ByzantineSeals = [][]byte
 
 // EncodeRLP serializes ist into the Ethereum RLP format.
 func (ist *ByzantineExtra) EncodeRLP(w io.Writer) error {
@@ -75,16 +79,45 @@ func (ist *ByzantineExtra) DecodeRLP(s *rlp.Stream) error {
 // error if the length of the given extra-data is less than 32 bytes or the extra-data can not
 // be decoded.
 func ExtractByzantineExtra(h *Header) (*ByzantineExtra, error) {
-	if len(h.Extra) < IstanbulExtraVanity {
+	if len(h.Extra) < ByzantineExtraVanity {
 		return nil, ErrInvalidByzantineHeaderExtra
 	}
 
 	var istanbulExtra *ByzantineExtra
-	err := rlp.DecodeBytes(h.Extra[IstanbulExtraVanity:], &istanbulExtra)
+	err := rlp.DecodeBytes(h.Extra[ByzantineExtraVanity:], &istanbulExtra)
 	if err != nil {
 		return nil, err
 	}
 	return istanbulExtra, nil
+}
+
+// writeCommittedSeals writes the extra-data field of a block header with given committed seals.
+func WriteCommittedSeals(h *Header, committedSeals ByzantineSeals) error {
+	if len(committedSeals) == 0 {
+		return errInvalidCommittedSeals
+	}
+
+	for _, seal := range committedSeals {
+		if len(seal) != ByzantineExtraSeal {
+			return errInvalidCommittedSeals
+		}
+	}
+
+	istanbulExtra, err := ExtractByzantineExtra(h)
+	if err != nil {
+		return err
+	}
+
+	istanbulExtra.CommittedSeal = make([][]byte, len(committedSeals))
+	copy(istanbulExtra.CommittedSeal, committedSeals)
+
+	payload, err := rlp.EncodeToBytes(&istanbulExtra)
+	if err != nil {
+		return err
+	}
+
+	h.Extra = append(h.Extra[:ByzantineExtraVanity], payload...)
+	return nil
 }
 
 // ByzantineFilteredHeader returns a filtered header which some information (like seal, committed seals)
@@ -107,7 +140,7 @@ func ByzantineFilteredHeader(h *Header, keepSeal bool) *Header {
 		return nil
 	}
 
-	newHeader.Extra = append(newHeader.Extra[:IstanbulExtraVanity], payload...)
+	newHeader.Extra = append(newHeader.Extra[:ByzantineExtraVanity], payload...)
 
 	return newHeader
 }
@@ -134,7 +167,7 @@ func PbftPendingHeader(h *Header, keepSeal bool) *Header {
 		return nil
 	}
 
-	newHeader.Extra = append(newHeader.Extra[:IstanbulExtraVanity], payload...)
+	newHeader.Extra = append(newHeader.Extra[:ByzantineExtraVanity], payload...)
 
 	return newHeader
 }

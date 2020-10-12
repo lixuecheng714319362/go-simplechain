@@ -61,8 +61,8 @@ const (
 	ReceiptsMsg         = 0x10
 	ByzantineMsg        = 0x11 // include IstanbulMsg and PbftMsg
 	TransactionRouteMsg = 0x21
-	GetBlockExtraMsg    = 0x22
-	BlockExtraMsg       = 0x23
+	GetBlockSealsMsg    = 0x22
+	BlockSealsMsg       = 0x23
 )
 
 type errCode int
@@ -218,3 +218,11 @@ type blockBody struct {
 
 // blockBodiesData is the network packet for block content distribution.
 type blockBodiesData []*blockBody
+
+type blockSeals struct {
+	BlockHash     common.Hash
+	BlockNumber   uint64
+	CommittedSeal types.ByzantineSeals
+}
+
+type blockSealsData []*blockSeals

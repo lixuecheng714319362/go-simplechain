@@ -284,7 +284,7 @@ func makePoaExtra(accs []accounts.Account) ([]byte, error) {
 		extraSeal   = crypto.SignatureLength // Fixed number of extra-data suffix bytes reserved for signer seal
 	)
 
-	// compensate the lack bytes if header.Extra is not enough IstanbulExtraVanity bytes.
+	// compensate the lack bytes if header.Extra is not enough ByzantineExtraVanity bytes.
 	if len(extra) < extraVanity {
 		extra = append(extra, bytes.Repeat([]byte{0x00}, extraVanity-len(extra))...)
 	}
@@ -304,11 +304,11 @@ func makeIstanbulExtra(accs []accounts.Account) ([]byte, error) {
 		addresses = append(addresses, acc.Address)
 	}
 
-	// compensate the lack bytes if header.Extra is not enough IstanbulExtraVanity bytes.
-	if len(extra) < types.IstanbulExtraVanity {
-		extra = append(extra, bytes.Repeat([]byte{0x00}, types.IstanbulExtraVanity-len(extra))...)
+	// compensate the lack bytes if header.Extra is not enough ByzantineExtraVanity bytes.
+	if len(extra) < types.ByzantineExtraVanity {
+		extra = append(extra, bytes.Repeat([]byte{0x00}, types.ByzantineExtraVanity-len(extra))...)
 	}
-	buf.Write(extra[:types.IstanbulExtraVanity])
+	buf.Write(extra[:types.ByzantineExtraVanity])
 
 	ist := &types.ByzantineExtra{
 		Validators:    addresses,
