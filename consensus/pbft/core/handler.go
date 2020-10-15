@@ -19,7 +19,6 @@ package core
 import (
 	"github.com/simplechain-org/go-simplechain/common"
 	"github.com/simplechain-org/go-simplechain/consensus/pbft"
-	"github.com/simplechain-org/go-simplechain/log"
 )
 
 // Start implements core.Engine.Start
@@ -185,7 +184,6 @@ func (c *core) handleCheckedMsg(msg *message, src pbft.Validator) (bool, error) 
 		return true, testBacklog(c.handleRoundChange(msg, src))
 
 	case msgLightPreprepare:
-		log.Report("handleCheckedMsg msgLightPreprepare")
 		if c.config.LightMode {
 			return true, testBacklog(c.handleLightPrepare(msg, src))
 		}

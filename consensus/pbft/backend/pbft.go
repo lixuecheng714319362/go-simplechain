@@ -119,7 +119,6 @@ func (sb *backend) Signers(header *types.Header) ([]common.Address, error) {
 
 	var addrs []common.Address
 	proposalSeal := pbftCore.PrepareCommittedSeal(header.Hash())
-	//proposalSeal := istanbulCore.PrepareCommittedSeal(header.PendingHash()) //FIXME: should commit signature with hash not pendingHash
 
 	// 1. Get committed seals from current header
 	for _, seal := range extra.CommittedSeal {
@@ -138,14 +137,14 @@ func (sb *backend) Signers(header *types.Header) ([]common.Address, error) {
 // given engine. Verifying the seal may be done optionally here, or explicitly
 // via the VerifySeal method.
 func (sb *backend) VerifyHeader(chain consensus.ChainReader, header *types.Header, seal bool) error {
-	return sb.verifyHeader(chain, header, nil)
+	return sb.verifyHeader(chain, header, nil, seal)
 }
 
 // verifyHeader checks whether a header conforms to the consensus rules.The
 // caller may optionally pass in a batch of parents (ascending order) to avoid
 // looking those up from the database. This is useful for concurrently verifying
 // a batch of new headers.
-func (sb *backend) verifyHeader(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
+func (sb *backend) verifyHeader(chain consensus.ChainReader, header *types.Header, parents []*types.Header, seal bool) error {
 	if header.Number == nil {
 		return errUnknownBlock
 	}
@@ -177,14 +176,14 @@ func (sb *backend) verifyHeader(chain consensus.ChainReader, header *types.Heade
 		return errInvalidDifficulty
 	}
 
-	return sb.verifyCascadingFields(chain, header, parents)
+	return sb.verifyCascadingFields(chain, header, parents, seal)
 }
 
 // verifyCascadingFields verifies all the header fields that are not standalone,
 // rather depend on a batch of previous headers. The caller may optionally pass
 // in a batch of parents (ascending order) to avoid looking those up from the
 // database. This is useful for concurrently verifying a batch of new headers.
-func (sb *backend) verifyCascadingFields(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
+func (sb *backend) verifyCascadingFields(chain consensus.ChainReader, header *types.Header, parents []*types.Header, seal bool) error {
 	// The genesis block is the always valid dead-end
 	number := header.Number.Uint64()
 	if number == 0 {
@@ -212,6 +211,12 @@ func (sb *backend) verifyCascadingFields(chain consensus.ChainReader, header *ty
 	for i, validator := range snap.validators() {
 		copy(validators[i*common.AddressLength:], validator[:])
 	}
+
+	// Needn't check block signer and committed seals on fast/light sync mode
+	if !seal {
+		return nil
+	}
+
 	if err := sb.verifySigner(chain, header, parents); err != nil {
 		return err
 	}
@@ -233,7 +238,7 @@ func (sb *backend) VerifyHeaders(chain consensus.ChainReader, headers []*types.H
 			if errored {
 				err = consensus.ErrUnknownAncestor
 			} else {
-				err = sb.verifyHeader(chain, header, headers[:i])
+				err = sb.verifyHeader(chain, header, headers[:i], seals[i])
 			}
 
 			if err != nil {

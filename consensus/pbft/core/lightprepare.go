@@ -11,7 +11,6 @@ import (
 func (c *core) sendLightPrepare(request *pbft.Request, curView *pbft.View) {
 	logger := c.logger.New("state", c.state)
 
-	//record := time.Now()
 	// encode light proposal
 	lightMsg, err := Encode(&pbft.Preprepare{
 		View:     curView,
@@ -21,7 +20,6 @@ func (c *core) sendLightPrepare(request *pbft.Request, curView *pbft.View) {
 		logger.Error("Failed to encode", "view", curView)
 		return
 	}
-	//log.Report("sendLightPrepare Encode light", "cost", time.Since(record))
 
 	// send light pre-prepare msg to others
 	c.broadcast(&message{
@@ -29,7 +27,7 @@ func (c *core) sendLightPrepare(request *pbft.Request, curView *pbft.View) {
 		Msg:  lightMsg,
 	}, false)
 
-	// handle full proposal by self
+	// handle full proposal by itself
 	c.handlePrepare2(&pbft.Preprepare{
 		View:     curView,
 		Proposal: request.Proposal,
@@ -73,7 +71,7 @@ func (c *core) handleLightPrepare(msg *message, src pbft.Validator) error {
 		} else {
 			logger.Warn("Failed to verify light proposal header", "err", err, "duration", duration)
 			c.sendNextRoundChange()
-			return err //TODO
+			return err
 		}
 	}
 
@@ -87,11 +85,12 @@ func (c *core) handleLightPrepare(msg *message, src pbft.Validator) error {
 		return errInvalidLightProposal
 	}
 
-	// empty block
+	// empty block, handle immediately
 	if len(lightProposal.TxDigests()) == 0 {
 		return c.handleLightPrepare2(preprepare.FullPreprepare(), src)
 	}
 
+	// fill light proposal by txpool, return missed transactions
 	filled, missedTxs, err := c.backend.FillLightProposal(lightProposal)
 	if err != nil {
 		logger.Warn("Failed to fill light proposal", "error", err)
@@ -99,8 +98,12 @@ func (c *core) handleLightPrepare(msg *message, src pbft.Validator) error {
 		return err
 	}
 
-	logger.Trace("light block transaction covered", "percent", 100.00-100.00*float64(len(missedTxs))/float64(len(lightProposal.TxDigests())))
+	// cal percent of txs existed in local txpool
+	percent := 100.00 - 100.00*float64(len(missedTxs))/float64(len(lightProposal.TxDigests()))
+	logger.Trace("light block transaction covered", "percent", percent)
 
+	// 1.block filled, handle immediately
+	// 2.block missed some txs, request them
 	if filled {
 		// entire the second stage
 		return c.handleLightPrepare2(preprepare.FullPreprepare(), src)

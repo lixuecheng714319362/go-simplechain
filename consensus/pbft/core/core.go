@@ -98,8 +98,6 @@ type core struct {
 	pendingRequests   *prque.Prque
 	pendingRequestsMu *sync.Mutex
 
-	// metrics
-
 	// the meter to record the round change rate
 	roundMeter metrics.Meter
 	// the meter to record the sequence update rate
@@ -131,7 +129,6 @@ func (c *core) finalizeMessage(msg *message) ([]byte, error) {
 	// Assign the CommittedSeal if it's a COMMIT message and proposal is not nil
 	if msg.Code == msgCommit && c.current.Conclusion() != nil {
 		seal := PrepareCommittedSeal(c.current.Conclusion().Hash())
-		//seal := PrepareCommittedSeal(c.current.Proposal().PendingHash()) //TODO: 签pendingHash(proposal)还是Conclusion ？
 		msg.CommittedSeal, err = c.backend.Sign(seal)
 		if err != nil {
 			return nil, err
@@ -157,24 +154,24 @@ func (c *core) finalizeMessage(msg *message) ([]byte, error) {
 	return payload, nil
 }
 
-func (c *core) _broadcast(msg *message, self bool) {
-	logger := c.logger.New("state", c.state)
-
-	payload, err := c.finalizeMessage(msg)
-	if err != nil {
-		logger.Error("Failed to finalize message", "msg", msg, "err", err)
-		return
-	}
-
-	// Broadcast payload
-	if err = c.backend.Broadcast(c.valSet, msg.Address, payload); err != nil {
-		logger.Error("Failed to broadcast message", "msg", msg, "err", err)
-	}
-	// Post payload
-	if self {
-		c.backend.Post(payload)
-	}
-}
+//func (c *core) broadcast(msg *message, self bool) {
+//	logger := c.logger.New("state", c.state)
+//
+//	payload, err := c.finalizeMessage(msg)
+//	if err != nil {
+//		logger.Error("Failed to finalize message", "msg", msg, "err", err)
+//		return
+//	}
+//
+//	// Broadcast payload
+//	if err = c.backend.Broadcast(c.valSet, msg.Address, payload); err != nil {
+//		logger.Error("Failed to broadcast message", "msg", msg, "err", err)
+//	}
+//	// Post payload
+//	if self {
+//		c.backend.Post(payload)
+//	}
+//}
 
 func (c *core) broadcast(msg *message, self bool) {
 	logger := c.logger.New("state", c.state)
@@ -190,7 +187,6 @@ func (c *core) broadcast(msg *message, self bool) {
 
 	// Broadcast payload
 	if err = c.backend.BroadcastMsg(ps, msg.Hash(), payload); err != nil {
-		//if err = c.backend.Broadcast(c.valSet, msg.Address, payload); err != nil {
 		logger.Error("Failed to broadcast message", "msg", msg, "err", err)
 	}
 	// Post payload
@@ -217,6 +213,7 @@ func (c *core) send(msg *message, val pbft.Validators) {
 func (c *core) forward(msg *message, src pbft.Validator) bool {
 	logger := c.logger.New("state", c.state, "from", src)
 
+	// get forwardNodes from msg
 	forwardNodes := msg.ForwardNodes
 	// no nodes need to forward, exit
 	if forwardNodes == nil {
@@ -231,6 +228,7 @@ func (c *core) forward(msg *message, src pbft.Validator) bool {
 		}
 	}
 
+	// calc forwardPeers and remain forwardNodes
 	ps, remainNodes := c.backend.GetForwardNodes(forwardValidator)
 	// no forward peers existed in protocol, exit
 	if ps == nil {
@@ -269,7 +267,6 @@ func (c *core) IsProposer() bool {
 }
 
 func (c *core) IsCurrentProposal(proposalHash common.Hash) bool {
-	//return c.current != nil && c.current.pendingRequest != nil && c.current.pendingRequest.Proposal.Hash() == blockHash
 	return c.current != nil && c.current.pendingRequest != nil && c.current.pendingRequest.Proposal.PendingHash() == proposalHash
 }
 
@@ -278,6 +275,7 @@ func (c *core) commit() {
 
 	conclusion := c.current.Conclusion()
 	if conclusion != nil {
+		// merge commits
 		committedSeals := make([][]byte, c.current.Commits.Size())
 		for i, v := range c.current.Commits.Values() {
 			committedSeals[i] = make([]byte, types.ByzantineExtraSeal)
@@ -362,8 +360,8 @@ func (c *core) startNewRound(round *big.Int) {
 	log.Report("startNewRound >>", "IsProposer", c.IsProposer(), "roundChange", roundChange)
 
 	if roundChange && c.IsProposer() && c.current != nil {
-		// If it is locked, propose the old proposal
-		// If we have pending request, propose pending request
+		// 1.If it is locked, propose the old proposal
+		// 2.If we have pending request, propose pending request
 		if c.current.IsHashLocked() {
 			r := &pbft.Request{
 				Proposal: c.current.Proposal(), //c.current.Proposal would be the locked proposal by previous proposer, see updateRoundState
@@ -373,6 +371,7 @@ func (c *core) startNewRound(round *big.Int) {
 			c.sendPreprepare(c.current.pendingRequest)
 		}
 	}
+	// start new timeout timer
 	c.newRoundChangeTimer()
 
 	logger.Debug("New round", "new_round", newView.Round, "new_seq", newView.Sequence, "new_proposer", c.valSet.GetProposer(), "valSet", c.valSet.List(), "size", c.valSet.Size(), "IsProposer", c.IsProposer())
@@ -442,7 +441,7 @@ func (c *core) stopTimer() {
 }
 
 func (c *core) newRoundChangeTimer() {
-	logger := c.logger.New("state", c.state, "round", c.current.Round())
+	logger := c.logger.New("state", c.state, "sequence", c.current.Sequence(), "round", c.current.Round())
 	c.stopTimer()
 
 	// set timeout based on the round number

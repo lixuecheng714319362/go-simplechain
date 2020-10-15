@@ -102,7 +102,7 @@ func (c *core) handlePrepare2(preprepare *pbft.Preprepare, msg *message, src pbf
 		} else {
 			logger.Warn("Failed to verify proposal", "err", err, "duration", duration)
 			c.sendNextRoundChange()
-			return err //TODO
+			return err
 		}
 	}
 
@@ -147,18 +147,13 @@ func (c *core) checkPreprepareMsg(msg *message, src pbft.Validator, view *pbft.V
 }
 
 func (c *core) checkAndAcceptPreprepare(preprepare *pbft.Preprepare) error {
-	//logger := c.logger.New("state", c.state)
-	//record := time.Now()
-
 	// only accept pre-prepare at StateAcceptRequest
 	if c.state != StateAcceptRequest {
 		return nil
 	}
 
 	// Send ROUND CHANGE if the locked proposal and the received proposal are different
-	if c.current.IsHashLocked() { //TODO: 是否需要锁定hash？
-		//TODO-T: 之前已经接受并锁定此proposal，直接广播commit消息
-		//if preprepare.Proposal.Hash() == c.current.GetLockedHash() {
+	if c.current.IsHashLocked() {
 		if preprepare.Proposal.PendingHash() == c.current.GetLockedHash() {
 			// Broadcast COMMIT and enters Prepared state directly
 			c.acceptPreprepare(preprepare)
@@ -177,12 +172,6 @@ func (c *core) checkAndAcceptPreprepare(preprepare *pbft.Preprepare) error {
 	//   1. the locked proposal and the received proposal match
 	//   2. we have no locked proposal
 	c.acceptPreprepare(preprepare)
-
-	//log.Report("checkAndAcceptPreprepare", "cost", time.Since(record))
-
-	//defer func(accept time.Duration) {
-	//	log.Report("handle pre-prepare", "acceptCost", accept, "totalCost", time.Since(c.prepareTimestamp))
-	//}(time.Since(c.prepareTimestamp))
 
 	// execute proposal and broadcast it
 	if err := c.executePreprepare(preprepare); err != nil {

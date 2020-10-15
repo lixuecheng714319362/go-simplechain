@@ -131,6 +131,7 @@ func (sb *backend) Broadcast(valSet pbft.ValidatorSet, sender common.Address, pa
 	return nil
 }
 
+// BroadcastMsg sends a message to specific validators. implements pbft.Backend.BroadcastMsg
 func (sb *backend) BroadcastMsg(ps map[common.Address]consensus.Peer, hash common.Hash, payload []byte) error {
 	sb.knownMessages.Add(hash, true)
 
@@ -187,9 +188,6 @@ func (sb *backend) SendMsg(val pbft.Validators, payload []byte) error {
 }
 
 func (sb *backend) Guidance(valSet pbft.ValidatorSet, sender common.Address, payload []byte) {
-	hash := pbft.RLPHash(payload)
-	sb.knownMessages.Add(hash, true)
-
 	targets := make([]common.Address, 0, valSet.Size())
 	myIndex, routeIndex := -1, -1 // -1 means not a route node index
 	for i, val := range valSet.List() {
@@ -203,30 +201,9 @@ func (sb *backend) Guidance(valSet pbft.ValidatorSet, sender common.Address, pay
 	}
 
 	if sb.broadcaster != nil {
+		hash := pbft.RLPHash(payload)
 		ps := sb.broadcaster.FindRoute(targets, myIndex, routeIndex)
-
-		for addr, p := range ps {
-			ms, ok := sb.recentMessages.Get(addr)
-			var m *lru.ARCCache
-			if ok {
-				m, _ = ms.(*lru.ARCCache)
-				if _, k := m.Get(hash); k {
-					// This peer had this event, skip it
-					continue
-				}
-			} else {
-				m, _ = lru.NewARC(inmemoryMessages)
-			}
-
-			m.Add(hash, true)
-			sb.recentMessages.Add(addr, m)
-
-			go func(peer consensus.Peer) {
-				if err := peer.Send(PbftMsg, payload); err != nil {
-					log.Error("send PbftMsg failed", "error", err.Error())
-				}
-			}(p)
-		}
+		sb.BroadcastMsg(ps, hash, payload)
 	}
 }
 
@@ -241,9 +218,6 @@ func (sb *backend) MarkTransactionKnownBy(val pbft.Validator, txs types.Transact
 
 // Broadcast implements pbft.Backend.Gossip
 func (sb *backend) Gossip(valSet pbft.ValidatorSet, payload []byte) {
-	hash := pbft.RLPHash(payload)
-	sb.knownMessages.Add(hash, true)
-
 	targets := make(map[common.Address]bool)
 	for _, val := range valSet.List() {
 		if val.Address() != sb.Address() {
@@ -252,30 +226,9 @@ func (sb *backend) Gossip(valSet pbft.ValidatorSet, payload []byte) {
 	}
 
 	if sb.broadcaster != nil && len(targets) > 0 {
+		hash := pbft.RLPHash(payload)
 		ps := sb.broadcaster.FindPeers(targets)
-
-		for addr, p := range ps {
-			ms, ok := sb.recentMessages.Get(addr)
-			var m *lru.ARCCache
-			if ok {
-				m, _ = ms.(*lru.ARCCache)
-				if _, k := m.Get(hash); k {
-					// This peer had this event, skip it
-					continue
-				}
-			} else {
-				m, _ = lru.NewARC(inmemoryMessages)
-			}
-
-			m.Add(hash, true)
-			sb.recentMessages.Add(addr, m)
-
-			go func(peer consensus.Peer) {
-				if err := peer.Send(PbftMsg, payload); err != nil {
-					log.Error("send PbftMsg failed", "error", err.Error())
-				}
-			}(p)
-		}
+		sb.BroadcastMsg(ps, hash, payload)
 	}
 }
 

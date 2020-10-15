@@ -1539,21 +1539,6 @@ func (bc *BlockChain) InsertChain(chain types.Blocks) (int, error) {
 	return n, err
 }
 
-// warning: only usd in the pbft consensus
-//func (bc *BlockChain) InsertPreExecutedBlock(block *types.Block, environment *state.ExecutedBlock) error {
-//	if block == nil {
-//		return nil
-//	}
-//
-//	bc.wg.Add(1)
-//	bc.chainmu.Lock()
-//	_, err := bc.insertChain(types.Blocks{block}, true, map[common.Hash]*state.ExecutedBlock{block.Hash(): environment})
-//	bc.chainmu.Unlock()
-//	bc.wg.Done()
-//
-//	return err
-//}
-
 // insertChain is the internal implementation of InsertChain, which assumes that
 // 1) chains are contiguous, and 2) The chain mutex is held.
 //
@@ -1719,10 +1704,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		if parent == nil {
 			parent = bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
 		}
-		statedb, err := state.New(parent.Root, bc.stateCache)
-		if err != nil {
-			return it.index, err
-		}
+
 		// If we have a followup block, run that against the current state to pre-cache
 		// transactions and probabilistically some of the account/db trie nodes.
 		var followupInterrupt uint32
@@ -1740,16 +1722,20 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 				}(time.Now())
 			}
 		}
+
 		// Process block using the parent state as reference point
+		substart := time.Now()
+
 		var (
+			statedb  *state.StateDB
 			receipts types.Receipts
 			logs     []*types.Log
 			usedGas  uint64
 			executed bool
 		)
 
-		// use pre executed context for Pbft consensus
-		// block was executed at proposal commit phase
+		// use pre executed context for pending block
+		// block was already executed at consensus phase
 		if bc.pendingBlocks != nil {
 			pb, ok := bc.pendingBlocks.Get(block.Hash())
 			if ok {
@@ -1759,43 +1745,48 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 			}
 		}
 
-		substart := time.Now()
-		if !executed { // execute and validate common block
+		if !executed { // process common block
+			statedb, err = state.New(parent.Root, bc.stateCache)
+			if err != nil {
+				return it.index, err
+			}
 			receipts, logs, usedGas, err = bc.processor.Process(block, statedb, bc.vmConfig)
-			//}
-
 			if err != nil {
 				bc.reportBlock(block, receipts, err)
 				atomic.StoreUint32(&followupInterrupt, 1)
 				return it.index, err
 			}
-			// Update the metrics touched during block processing
-			accountReadTimer.Update(statedb.AccountReads)     // Account reads are complete, we can mark them
-			storageReadTimer.Update(statedb.StorageReads)     // Storage reads are complete, we can mark them
-			accountUpdateTimer.Update(statedb.AccountUpdates) // Account updates are complete, we can mark them
-			storageUpdateTimer.Update(statedb.StorageUpdates) // Storage updates are complete, we can mark them
+		}
 
-			triehash := statedb.AccountHashes + statedb.StorageHashes // Save to not double count in validation
-			trieproc := statedb.AccountReads + statedb.AccountUpdates
-			trieproc += statedb.StorageReads + statedb.StorageUpdates
+		// Update the metrics touched during block processing
+		accountReadTimer.Update(statedb.AccountReads)     // Account reads are complete, we can mark them
+		storageReadTimer.Update(statedb.StorageReads)     // Storage reads are complete, we can mark them
+		accountUpdateTimer.Update(statedb.AccountUpdates) // Account updates are complete, we can mark them
+		storageUpdateTimer.Update(statedb.StorageUpdates) // Storage updates are complete, we can mark them
 
-			blockExecutionTimer.Update(time.Since(substart) - trieproc - triehash)
+		triehash := statedb.AccountHashes + statedb.StorageHashes // Save to not double count in validation
+		trieproc := statedb.AccountReads + statedb.AccountUpdates
+		trieproc += statedb.StorageReads + statedb.StorageUpdates
 
-			// Validate the state using the default validator
-			substart = time.Now()
+		blockExecutionTimer.Update(time.Since(substart) - trieproc - triehash)
+
+		// Validate the state using the default validator
+		substart = time.Now()
+		if !executed { // validate block receipts for common block
 			if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
 				bc.reportBlock(block, receipts, err)
 				atomic.StoreUint32(&followupInterrupt, 1)
 				return it.index, err
 			}
-			//proctime := time.Since(start) FIXME: proctime statistic
-
-			// Update the metrics touched during block validation
-			accountHashTimer.Update(statedb.AccountHashes) // Account hashes are complete, we can mark them
-			storageHashTimer.Update(statedb.StorageHashes) // Storage hashes are complete, we can mark them
-
-			blockValidationTimer.Update(time.Since(substart) - (statedb.AccountHashes + statedb.StorageHashes - triehash))
 		}
+		proctime := time.Since(start)
+
+		// Update the metrics touched during block validation
+		accountHashTimer.Update(statedb.AccountHashes) // Account hashes are complete, we can mark them
+		storageHashTimer.Update(statedb.StorageHashes) // Storage hashes are complete, we can mark them
+
+		blockValidationTimer.Update(time.Since(substart) - (statedb.AccountHashes + statedb.StorageHashes - triehash))
+
 		// Write the block to the chain and get the status.
 		substart = time.Now()
 		status, err := bc.writeBlockWithState(block, receipts, logs, statedb, false)
@@ -1822,7 +1813,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 			lastCanon = block
 
 			// Only count canonical blocks for GC processing time
-			//bc.gcproc += proctime FIXME: proctime statistic
+			bc.gcproc += proctime
 
 		case SideStatTy:
 			log.Debug("Inserted forked block", "number", block.Number(), "hash", block.Hash(),
@@ -2191,7 +2182,7 @@ func (bc *BlockChain) BadBlocks() []*types.Block {
 // addBadBlock adds a bad block to the bad-block LRU cache
 func (bc *BlockChain) addBadBlock(block *types.Block) {
 	bc.badBlocks.Add(block.Hash(), block)
-	// If a pbft block, add pendingHash too
+	// Pbft block, add pendingHash too
 	if block.MixDigest() == types.PbftDigest {
 		bc.badProposeBlocks.Add(block.PendingHash(), block)
 	}

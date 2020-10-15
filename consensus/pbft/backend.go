@@ -17,11 +17,11 @@
 package pbft
 
 import (
-	"github.com/simplechain-org/go-simplechain/consensus"
 	"math/big"
 	"time"
 
 	"github.com/simplechain-org/go-simplechain/common"
+	"github.com/simplechain-org/go-simplechain/consensus"
 	"github.com/simplechain-org/go-simplechain/core/types"
 	"github.com/simplechain-org/go-simplechain/event"
 )
@@ -43,7 +43,7 @@ type Backend interface {
 	// Broadcast sends a message to other validators by router
 	Broadcast(valSet ValidatorSet, sender common.Address, payload []byte) error
 
-	// BroadcastMsg
+	// BroadcastMsg sends a message to specific validators
 	BroadcastMsg(ps map[common.Address]consensus.Peer, hash common.Hash, payload []byte) error
 
 	// Send a message to the specific validators

@@ -918,7 +918,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			hashes, _ = pm.fetcher.FilterSeals(p.id, hashes, committedSeals, time.Now())
 		}
 		if len(hashes) > 0 || !filter {
-			//deliver the rest remains
+			// deliver the rest
 			for _, hash := range hashes {
 				pm.fetcher.Notify(p.id, hash, hash2number[hash], time.Now(), p.RequestOneHeader, p.RequestBodies)
 			}
