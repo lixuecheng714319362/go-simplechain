@@ -148,8 +148,9 @@ func (args *SendTxArgs) toTransaction() *types.Transaction {
 	}
 	if args.To == nil {
 		tx = types.NewContractCreation(uint64(*args.Nonce), (*big.Int)(args.Value), uint64(*args.Gas), (*big.Int)(args.GasPrice), input)
+	} else {
+		tx = types.NewTransaction(uint64(*args.Nonce), *args.To, (*big.Int)(args.Value), uint64(*args.Gas), (*big.Int)(args.GasPrice), input)
 	}
-	tx = types.NewTransaction(uint64(*args.Nonce), *args.To, (*big.Int)(args.Value), uint64(*args.Gas), (*big.Int)(args.GasPrice), input)
 	if args.BlockLimit != nil {
 		tx.SetBlockLimit(uint64(*args.BlockLimit))
 	}
