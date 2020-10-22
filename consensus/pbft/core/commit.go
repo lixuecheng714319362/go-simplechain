@@ -103,7 +103,6 @@ func (c *core) verifyCommit(commit *pbft.Subject, src pbft.Validator) error {
 func (c *core) acceptCommit(msg *message) error {
 	logger := c.logger.New("from", msg.Address, "state", c.state)
 	logger.Trace("accept commit msg", "view", c.currentView(), "lockHash", c.current.lockedHash)
-	//logger.Error("[report] accept commit msg", "view", c.currentView(), "lockHash", c.current.lockedHash)
 
 	// Add the COMMIT message to current round state
 	if err := c.current.Commits.Add(msg); err != nil {
@@ -130,6 +129,6 @@ func (c *core) checkAndCommit(commit *pbft.Subject) {
 	// Sometimes our node received a commit-message from another hashLocked node,
 	// the node cannot have enough prepare-messages to upgrade state to prepared or send commit-message
 	if c.state.Cmp(StatePrepared) < 0 {
-		c.checkAndCommitPrepare(commit)
+		c.checkAndPrepare(commit)
 	}
 }

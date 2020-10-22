@@ -383,7 +383,7 @@ func (p *peer) RequestOneHeader(hash common.Hash) error {
 }
 
 func (p *peer) SendBlockSeals(hashes []common.Hash, numbers []uint64, seals []types.ByzantineSeals) error {
-	p.Log().Error("[Fetching] Send block committed seals", "len", len(seals), "hash", hashes[0])
+	//p.Log().Error("[report] Send block committed seals", "len", len(seals), "hash", hashes[0])
 	data := make(blockSealsData, 0, len(hashes))
 	for i := 0; i < len(hashes) && i < len(seals); i++ {
 		data = append(data, &blockSeals{BlockHash: hashes[i], BlockNumber: numbers[i], CommittedSeal: seals[i]})

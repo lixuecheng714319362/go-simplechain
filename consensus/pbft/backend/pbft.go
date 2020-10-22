@@ -238,7 +238,11 @@ func (sb *backend) VerifyHeaders(chain consensus.ChainReader, headers []*types.H
 			if errored {
 				err = consensus.ErrUnknownAncestor
 			} else {
-				err = sb.verifyHeader(chain, header, headers[:i], seals[i])
+				seal := false
+				if seals != nil {
+					seal = seals[i]
+				}
+				err = sb.verifyHeader(chain, header, headers[:i], seal)
 			}
 
 			if err != nil {
@@ -751,15 +755,15 @@ func writeCommittedSeals(h *types.Header, committedSeals [][]byte) error {
 		}
 	}
 
-	istanbulExtra, err := types.ExtractByzantineExtra(h)
+	pbftExtra, err := types.ExtractByzantineExtra(h)
 	if err != nil {
 		return err
 	}
 
-	istanbulExtra.CommittedSeal = make([][]byte, len(committedSeals))
-	copy(istanbulExtra.CommittedSeal, committedSeals)
+	pbftExtra.CommittedSeal = make([][]byte, len(committedSeals))
+	copy(pbftExtra.CommittedSeal, committedSeals)
 
-	payload, err := rlp.EncodeToBytes(&istanbulExtra)
+	payload, err := rlp.EncodeToBytes(&pbftExtra)
 	if err != nil {
 		return err
 	}

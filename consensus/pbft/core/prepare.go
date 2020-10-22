@@ -46,7 +46,7 @@ func (c *core) sendPrepare() {
 
 	c.broadcast(prepareMsg, false)
 	c.acceptPrepare(prepareMsg, sub.View)
-	c.checkAndCommitPrepare(sub)
+	c.checkAndPrepare(sub)
 }
 
 func (c *core) handlePrepare(msg *message, src pbft.Validator) error {
@@ -68,7 +68,7 @@ func (c *core) handlePrepare(msg *message, src pbft.Validator) error {
 		return err
 	}
 	c.acceptPrepare(msg, prepare.View)
-	c.checkAndCommitPrepare(prepare)
+	c.checkAndPrepare(prepare)
 
 	return nil
 }
@@ -100,7 +100,7 @@ func (c *core) acceptPrepare(msg *message, view *pbft.View) error {
 	return nil
 }
 
-func (c *core) checkAndCommitPrepare(prepare *pbft.Subject) {
+func (c *core) checkAndPrepare(prepare *pbft.Subject) {
 	// Change to Prepared state if we've received enough PREPARE messages or it is locked
 	// and we are in earlier state before Prepared state.
 	if (

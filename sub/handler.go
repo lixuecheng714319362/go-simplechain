@@ -225,7 +225,7 @@ func NewProtocolManager(config *params.ChainConfig, checkpoint *params.TrustedCh
 			return 0, nil
 		}
 
-		//if err := manager.txpool.SenderFromBlocks(blocks); err != nil {
+		//if err := manager.txpool.CheckAndSetSender(blocks); err != nil {
 		//	log.Warn("Unsynced yet, discarded propagated block", "number", blocks[0].Number(), "hash", blocks[0].Hash())
 		//}
 

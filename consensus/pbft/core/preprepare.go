@@ -164,7 +164,6 @@ func (c *core) checkAndAcceptPreprepare(preprepare *pbft.Preprepare) error {
 			// Send round change
 			c.sendNextRoundChange()
 		}
-
 		return nil
 	}
 
@@ -178,6 +177,7 @@ func (c *core) checkAndAcceptPreprepare(preprepare *pbft.Preprepare) error {
 		// Verify proposal failed
 		// Send round change
 		c.sendNextRoundChange()
+		return err
 	}
 
 	c.setState(StatePreprepared)

@@ -430,13 +430,15 @@ func (f *Fetcher) loop() {
 			for peer, hashes := range request {
 				log.Trace("Fetching scheduled headers", "peer", peer, "addr", f.peerAddress(peer), "list", hashes)
 
+				fetchHeader, hashes := f.fetching[hashes[0]].fetchHeader, hashes
+
 				go func(hashes []common.Hash) {
 					if f.fetchingHook != nil {
 						f.fetchingHook(hashes)
 					}
 					for _, hash := range hashes {
 						headerFetchMeter.Mark(1)
-						f.fetching[hash].fetchHeader(hash) // Suboptimal, but protocol doesn't allow batch header retrievals
+						fetchHeader(hash) // Suboptimal, but protocol doesn't allow batch header retrievals
 					}
 				}(hashes)
 			}

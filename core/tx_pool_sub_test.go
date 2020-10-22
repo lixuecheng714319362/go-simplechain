@@ -189,7 +189,7 @@ func TestTxPool_Local(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "known transaction")
 
-	pendingTxs := txpool.PendingLimit(10)
+	pendingTxs := txpool.PendingLimit(blockchain.current+1, 10, true)
 	assert.Equal(t, 2, pendingTxs.Len())
 
 	// generate a block

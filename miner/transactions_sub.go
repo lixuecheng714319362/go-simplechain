@@ -70,7 +70,7 @@ func (w *worker) applyTransactions(interrupt *int32, noempty bool, tstart time.T
 	}
 
 	// Fill the block with all available pending transactions.
-	pending := w.eth.TxPool().PendingLimit(1000)
+	pending := w.eth.TxPool().PendingLimit(env.header.Number.Uint64(), 1000, true)
 	// Short circuit if there is no available pending transactions
 	if len(pending) == 0 {
 		w.updateSnapshot()

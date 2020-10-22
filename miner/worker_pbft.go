@@ -44,7 +44,7 @@ func (w *worker) Execute(block *types.Block) (*types.Block, error) {
 		return nil, err
 	}
 
-	err = w.eth.TxPool().SenderFromBlocks(types.Blocks{block}) // check tx sender parallelly
+	err = w.eth.TxPool().CheckAndSetSender(types.Blocks{block}) // check tx sender parallelly
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +195,7 @@ func (w *worker) commitByzantium(interrupt *int32, noempty bool, tstart time.Tim
 
 	// Fill the block with all available pending transactions.
 	maxBlockTxs := atomic.LoadUint64(&w.pbftCtx.MaxBlockTxs)
-	pending := w.eth.TxPool().PendingLimit(int(maxBlockTxs))
+	pending := w.eth.TxPool().PendingLimit(w.current.header.Number.Uint64(), int(maxBlockTxs), true)
 
 	//log.Report("commitByzantium -> PendingLimit", "cost", time.Since(start))
 

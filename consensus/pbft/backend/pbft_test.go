@@ -257,7 +257,7 @@ func TestVerifyHeader(t *testing.T) {
 	// errEmptyCommittedSeals case
 	block := makeBlockWithoutSeal(chain, engine, chain.Genesis())
 	block, _ = engine.signBlock(chain.Genesis().Header(), block)
-	err := engine.VerifyHeader(chain, block.Header(), false)
+	err := engine.VerifyHeader(chain, block.Header(), true)
 	if err != errEmptyCommittedSeals {
 		t.Errorf("error mismatch: have %v, want %v", err, errEmptyCommittedSeals)
 	}

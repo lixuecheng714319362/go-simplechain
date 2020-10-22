@@ -1441,3 +1441,8 @@ func (pool *TxPool) SyncLimit(int) types.Transactions {
 func (pool *TxPool) SubscribeSyncTxsEvent(chan<- NewTxsEvent) event.Subscription {
 	panic("SubscribeSyncTxsEvent is not support this pool")
 }
+
+
+func (pool *TxPool) CheckAndSetSender(blocks types.Blocks) (err error) {
+	return err
+}

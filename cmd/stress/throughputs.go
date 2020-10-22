@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"crypto/ecdsa"
+	"errors"
 	"flag"
 	"log"
 	"math/big"
@@ -30,6 +31,10 @@ const (
 var (
 	txsCount = int64(0)
 	signer   types.Signer
+	stopCh   = make(chan struct{})
+
+	errTxPoolIsFull = errors.New("txpool is full")
+	errInvalidLimit = errors.New("overflow blockLimit")
 )
 
 var senderKeys = []string{
@@ -68,6 +73,7 @@ var (
 	tps       *int
 	toAddress common.Address
 	random    *bool
+	checkTx   *bool
 )
 
 func main() {
@@ -83,6 +89,7 @@ func main() {
 
 	seed := flag.Uint64("seed", 1, "hash seed")
 	random = flag.Bool("rand", false, "random signer and receiver tx")
+	checkTx = flag.Bool("check", false, "whether check transaction state")
 
 	flag.Parse()
 
@@ -129,20 +136,23 @@ func main() {
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(interrupt)
 	<-interrupt
+	close(stopCh)
+
 	for _, cancel := range cancels {
 		cancel()
 	}
 
-	time.Sleep(time.Second)
+	log.Printf("Check transation results, success: %d, failed:%d, timeout:%d", successTx, failedTx, timeoutTx)
+
 }
 
 func getBlockLimit(ctx context.Context, client *ethclient.Client, last uint64) uint64 {
 	block, err := client.BlockByNumber(ctx, nil)
 	if err != nil {
 		log.Printf(warnPrefix+"Failed to getBlockLimit: %v", err)
-		return last + 60
+		return last + 100
 	}
-	return block.NumberU64() + 60
+	return block.NumberU64() + 100
 }
 
 var big1 = big.NewInt(1)
@@ -205,6 +215,8 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 		}
 
 		select {
+		case <-stopCh:
+			return
 		case <-ctx.Done():
 			seconds := time.Since(start).Seconds()
 			log.Printf("throughputs:%v return (total %v in %v s, %v txs/s)", index, meterCount, seconds, float64(meterCount)/seconds)
@@ -218,6 +230,8 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 			if *tps <= 0 {
 				*tps = len(nonces)
 			}
+
+			var update bool
 			for j := 0; j < *tps && i < noncesLen; j++ {
 				nonce := nonces[i]
 
@@ -232,17 +246,37 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 					toAddress = receivers[turn]
 				}
 
-				sendTransaction(ctx, privateKey, nonce, blockLimit, toAddress, big1, gasLimit, gasPrice, data[:], client)
+				hash, err := sendTransaction(ctx, privateKey, nonce, blockLimit, toAddress, big1, gasLimit, gasPrice, data[:], client)
+
+				if err == errTxPoolIsFull {
+					time.Sleep(time.Second * 5) // waiting block
+					continue
+
+				}
+				if err == errInvalidLimit {
+					update = true
+					break
+				}
+
+				if *checkTx && hash != (common.Hash{}) {
+					checkTransaction(ctx, hash, client)
+				}
 
 				i++
+				meterCount++
+
 				//switch {
 				//if i%10000 == 0 {
 				//	handle pre-prepare = getBlockLimit(ctx, client, blockLimit)
 				//}
-				meterCount++
+
 			}
 
-			blockLimit++
+			if update {
+				blockLimit = getBlockLimit(ctx, client, blockLimit)
+			} else {
+				blockLimit++
+			}
 			//blockLimit = getBlockLimit(ctx, client, blockLimit)
 			//atomic.AddInt64(&txsCount, int64(meterCount))
 			//// statistics throughputs
@@ -256,8 +290,8 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 	}
 }
 
-func sendTransaction(ctx context.Context, key *ecdsa.PrivateKey, nonce, limit uint64,
-	toAddress common.Address, value *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte, client *ethclient.Client) {
+func sendTransaction(ctx context.Context, key *ecdsa.PrivateKey, nonce, limit uint64, toAddress common.Address,
+	value *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte, client *ethclient.Client) (common.Hash, error) {
 
 	tx := types.NewTransaction(nonce, toAddress, value, gasLimit, gasPrice, data)
 	tx.SetBlockLimit(limit)
@@ -265,12 +299,12 @@ func sendTransaction(ctx context.Context, key *ecdsa.PrivateKey, nonce, limit ui
 	signature, err := crypto.Sign(signer.Hash(tx).Bytes(), key)
 	if err != nil {
 		log.Printf(warnPrefix+" send tx[hash:%s, nonce:%d]: %v", tx.Hash().String(), tx.Nonce(), err)
-		return
+		return common.Hash{}, err
 	}
 	signed, err := tx.WithSignature(signer, signature)
 	if err != nil {
 		log.Printf(warnPrefix+" send tx[hash:%s, nonce:%d]: %v", tx.Hash().String(), tx.Nonce(), err)
-		return
+		return common.Hash{}, err
 	}
 	err = client.SendTransaction(ctx, signed)
 	switch err {
@@ -279,11 +313,51 @@ func sendTransaction(ctx context.Context, key *ecdsa.PrivateKey, nonce, limit ui
 		//records = append(records, signed.Hash())
 		//recordsMu.Unlock()
 	case context.Canceled:
+		return common.Hash{}, nil
 	default:
 		log.Printf(warnPrefix+" send tx[hash:%s, nonce:%d]: %v", tx.Hash().String(), tx.Nonce(), err)
 		if strings.Contains(err.Error(), "txpool is full") {
-			time.Sleep(time.Second) // waiting block
+			return common.Hash{}, errTxPoolIsFull
 		}
-		return
+		if strings.Contains(err.Error(), "overflow blockLimit") || strings.Contains(err.Error(), "expired transaction") {
+			return common.Hash{}, errInvalidLimit
+		}
+		return common.Hash{}, err
 	}
+
+	return signed.Hash(), nil
+}
+
+var (
+	timeoutTx uint32
+	successTx uint32
+	failedTx  uint32
+)
+
+func checkTransaction(ctx context.Context, hash common.Hash, client *ethclient.Client) {
+	go func() {
+		for {
+			select {
+			case <-time.After(time.Second):
+				r, err := client.TransactionReceipt(ctx, hash)
+				if err == nil {
+					if r.Status == 0 {
+						atomic.AddUint32(&failedTx, 1)
+						log.Printf(warnPrefix+"tx failed: hash: %s", hash.String())
+					} else {
+						atomic.AddUint32(&successTx, 1)
+					}
+					return
+				}
+				if err == context.Canceled {
+					return
+				}
+
+			case <-time.After(time.Minute):
+				atomic.AddUint32(&timeoutTx, 1)
+				log.Printf(warnPrefix+"tx timeout: hash: %s", hash.String())
+				return
+			}
+		}
+	}()
 }

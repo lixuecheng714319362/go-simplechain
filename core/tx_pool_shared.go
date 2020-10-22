@@ -17,9 +17,6 @@
 package core
 
 import (
-	"runtime"
-
-	"github.com/exascience/pargo/parallel"
 	"github.com/simplechain-org/go-simplechain/core/types"
 )
 
@@ -40,53 +37,4 @@ func (pool *TxPool) InitLightBlock(pb *types.LightBlock) bool {
 	}
 
 	return len(pb.MissedTxs) == 0
-}
-
-func (pool *TxPool) SenderFromBlocks(blocks types.Blocks) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = r.(error)
-		}
-	}()
-
-	for _, block := range blocks {
-		txs := block.Transactions()
-		parallel.Range(0, txs.Len(), runtime.NumCPU(), func(low, high int) {
-			for i := low; i < high; i++ {
-				tx := txs[i]
-				// already handled, copy sender
-				if ptx := pool.all.Get(tx.Hash()); ptx != nil {
-					tx.SetSender(ptx.GetSender())
-				} else {
-					_, err := types.Sender(pool.signer, tx)
-					if err != nil {
-						panic(err)
-					}
-				}
-			}
-		})
-	}
-
-	//var wg sync.WaitGroup
-	//for _, block := range blocks {
-	//	for _, tx := range block.Transactions() {
-	//		// already check sender by txpool, reuse sender
-	//		if ptx := pool.all.Get(tx.Hash()); ptx != nil {
-	//			tx.SetSender(ptx.GetSender())
-	//
-	//		} else {
-	//			transaction := tx // use out-of-range address for parallel invoke
-	//			wg.Add(1)
-	//			//pool.parallel.Put(func() error {
-	//			SenderParallel.Put(func() error {
-	//				defer wg.Done()
-	//				_, err := types.Sender(pool.signer, transaction)
-	//				return err
-	//			}, nil)
-	//		}
-	//	}
-	//}
-	//wg.Wait()
-
-	return err
 }

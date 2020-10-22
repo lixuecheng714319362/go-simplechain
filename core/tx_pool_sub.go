@@ -20,6 +20,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"github.com/exascience/pargo/parallel"
 	"math"
 	"math/big"
 	"runtime"
@@ -213,9 +214,10 @@ type TxPool struct {
 	gasPrice    *big.Int
 
 	//syncFeed     event.Feed
-	txFeed       event.Feed
-	signer       types.Signer
-	currentState *state.StateDB
+	txFeed        event.Feed
+	signer        types.Signer
+	currentState  *state.StateDB
+	currentNumber uint64
 
 	scope           event.SubscriptionScope
 	chainHeadCh     chan ChainHeadEvent
@@ -223,8 +225,9 @@ type TxPool struct {
 	reqResetCh      chan *txpoolResetRequest
 	reorgDoneCh     chan chan struct{}
 	reorgShutdownCh chan struct{} // requests shutdown of scheduleReorgLoop
-	mu              sync.RWMutex
+	mu              *sync.RWMutex
 	wg              sync.WaitGroup // for shutdown sync
+	cond            *sync.Cond
 
 	all     *txLookup // All transactions to allow lookups
 	queue   *txQueue
@@ -233,7 +236,6 @@ type TxPool struct {
 	txChecker    *TxChecker
 	blockTxCheck *BlockTxChecker
 	journal      *txJournal
-	validatorMu  sync.RWMutex
 
 	paraValidator *tunny.Pool
 }
@@ -267,6 +269,9 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		gasPrice:        new(big.Int).SetUint64(config.PriceLimit),
 	}
 
+	pool.mu = new(sync.RWMutex)
+	pool.cond = sync.NewCond(pool.mu)
+
 	pool.paraValidator = tunny.NewFunc(runtime.NumCPU(), func(i interface{}) interface{} {
 		return pool.validateAndSubmit(i.(*types.Transaction))
 	})
@@ -285,7 +290,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		if err := pool.journal.load(pool.AddLocalsSync); err != nil {
 			log.Warn("Failed to load transaction journal", "err", err)
 		}
-		if err := pool.journal.rotateList(pool.PendingLimit(-1)); err != nil {
+		if err := pool.journal.rotateList(pool.limit(-1, nil)); err != nil {
 			log.Warn("Failed to rotate transaction journal", "err", err)
 		}
 	}
@@ -330,7 +335,7 @@ func (pool *TxPool) loop() {
 		case <-journal.C:
 			if pool.journal != nil {
 				pool.mu.Lock()
-				if err := pool.journal.rotateList(pool.PendingLimit(-1)); err != nil {
+				if err := pool.journal.rotateList(pool.limit(-1, nil)); err != nil {
 					log.Warn("Failed to rotate local tx journal", "err", err)
 				}
 				pool.mu.Unlock()
@@ -411,6 +416,7 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest) {
 		pool.reset(reset.oldHead, reset.newHead, reset.newBlock)
 	}
 	pool.mu.Unlock()
+	pool.cond.Broadcast()
 }
 
 // reset retrieves the current state of the blockchain and ensures the content
@@ -480,11 +486,7 @@ func (pool *TxPool) reset(oldHead *types.Header, newHead *types.Header, newBlock
 		log.Error("Failed to reset txpool state", "err", err)
 		return
 	}
-	pool.currentState = statedb
-	//pool.pendingState = state.ManageState(statedb)
-	//pool.currentMaxGas = newHead.GasLimit
 
-	// Inject any transactions discarded due to reorgs
 	log.Debug("Reinjecting stale transactions", "count", len(reinject))
 	senderCacher.recover(pool.signer, reinject)
 
@@ -496,6 +498,10 @@ func (pool *TxPool) reset(oldHead *types.Header, newHead *types.Header, newBlock
 		pool.RemoveBlockKnownTxs(newBlock)
 		pool.txChecker.DeleteCaches(newBlock.Transactions())
 	}
+
+	// Inject any transactions discarded due to reorgs
+	pool.currentState = statedb
+	pool.currentNumber = newHead.Number.Uint64()
 }
 
 // Stop terminates the transaction pool.
@@ -594,7 +600,17 @@ func (pool *TxPool) SyncLimit(limit int) types.Transactions {
 	})
 }
 
-func (pool *TxPool) PendingLimit(limit int) types.Transactions {
+func (pool *TxPool) PendingLimit(number uint64, limit int, block bool) types.Transactions {
+	pool.mu.Lock()
+	switch {
+	case number <= pool.currentNumber:
+		log.Warn("rebuild block transactions", "number", number)
+	case number > pool.currentNumber+1 && block:
+		pool.cond.Wait()
+		pool.mu.Unlock()
+		return pool.PendingLimit(number, limit, block)
+	}
+	defer pool.mu.Unlock()
 	return pool.limit(limit, func(tx *types.Transaction, invalid map[common.Hash]struct{}) bool {
 		if !pool.blockTxCheck.OK(tx, false) {
 			log.Trace("Pending check failed, duplicate tx")
@@ -622,7 +638,7 @@ func (pool *TxPool) limit(limitNum int, condition func(tx *types.Transaction, in
 		if _, ok := invalid[tx.Hash()]; ok {
 			return true
 		}
-		if condition(tx, invalid) {
+		if condition != nil && condition(tx, invalid) {
 			checkFail++
 			return true
 		}
@@ -636,12 +652,13 @@ func (pool *TxPool) limit(limitNum int, condition func(tx *types.Transaction, in
 	return ret
 }
 
+//TODO: delete
 func (pool *TxPool) Pending() (map[common.Address]types.Transactions, error) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
 	pending := make(map[common.Address]types.Transactions)
-	for _, tx := range pool.PendingLimit(100) {
+	for _, tx := range pool.limit(100, nil) {
 		sender, err := types.Sender(pool.signer, tx)
 		if err != nil {
 			return pending, err
@@ -873,4 +890,40 @@ func (pool *TxPool) RemoveInvalidTxs(invalid map[common.Hash]struct{}) {
 
 		pool.txChecker.DeleteCache(hash)
 	}
+}
+
+func (pool *TxPool) CheckAndSetSender(blocks types.Blocks) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = r.(error)
+		}
+	}()
+
+	for _, block := range blocks {
+		txs := block.Transactions()
+		parallel.Range(0, txs.Len(), runtime.NumCPU(), func(low, high int) {
+			for i := low; i < high; i++ {
+				tx := txs[i]
+				// check double-cost
+				if !pool.blockTxCheck.OK(tx, false) {
+					panic(ErrDuplicated)
+				}
+				// check block limit
+				if err := pool.blockTxCheck.CheckBlockLimit(tx); err != nil {
+					panic(err)
+				}
+				// already handled, copy sender
+				if ptx := pool.all.Get(tx.Hash()); ptx != nil {
+					tx.SetSender(ptx.GetSender())
+				} else {
+					_, err := types.Sender(pool.signer, tx)
+					if err != nil {
+						panic(err)
+					}
+				}
+			}
+		})
+	}
+
+	return err
 }
