@@ -18,6 +18,7 @@ package miner
 
 import (
 	"errors"
+	"github.com/simplechain-org/go-simplechain/consensus/solo"
 	"math/big"
 	"strings"
 	"sync"
@@ -249,6 +250,10 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		worker.pbftCtx = pbft.CreateSealContext()
 		bft.SetSealer(worker)
 		bft.SetTxPool(eth.TxPool())
+	}
+
+	if solo, ok := engine.(*solo.Solo); ok {
+		solo.SetSealer(worker)
 	}
 
 	go worker.mainLoop()

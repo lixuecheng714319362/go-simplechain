@@ -17,6 +17,7 @@
 package common
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"encoding/hex"
 	"encoding/json"
@@ -369,4 +370,15 @@ func (ma *MixedcaseAddress) ValidChecksum() bool {
 // Original returns the mixed-case input string
 func (ma *MixedcaseAddress) Original() string {
 	return ma.original
+}
+
+type Hashes []Hash
+
+func (h Hashes) String() string {
+	var buf bytes.Buffer
+	for _, h := range h {
+		buf.WriteString(h.String())
+		buf.WriteString(" ")
+	}
+	return buf.String()
 }

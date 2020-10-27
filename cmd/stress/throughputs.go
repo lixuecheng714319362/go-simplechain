@@ -1,4 +1,4 @@
-//+build sub
+//+build sub,old
 
 package main
 
@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -128,6 +129,7 @@ func main() {
 			ctx, cancel := context.WithCancel(context.Background())
 			cancels = append(cancels, cancel)
 
+			wg.Add(1)
 			go throughputs(ctx, client, i, privateKey, fromAddress, nonces[i*SENDS:(i+1)*SENDS])
 		}
 	}
@@ -142,6 +144,7 @@ func main() {
 		cancel()
 	}
 
+	wg.Wait()
 	log.Printf("Check transation results, success: %d, failed:%d, timeout:%d", successTx, failedTx, timeoutTx)
 
 }
@@ -159,6 +162,7 @@ var big1 = big.NewInt(1)
 var big1e20, _ = new(big.Int).SetString("100000000000000000000", 10)
 
 func throughputs(ctx context.Context, client *ethclient.Client, index int, privateKey *ecdsa.PrivateKey, fromAddress common.Address, nonces []uint64) {
+	defer wg.Done()
 	gasLimit := uint64(21000 + (20+64)*68) // in units
 	gasPrice, err := client.SuggestGasPrice(ctx)
 	if err != nil {
@@ -215,8 +219,8 @@ func throughputs(ctx context.Context, client *ethclient.Client, index int, priva
 		}
 
 		select {
-		case <-stopCh:
-			return
+		//case <-stopCh:
+		//	return
 		case <-ctx.Done():
 			seconds := time.Since(start).Seconds()
 			log.Printf("throughputs:%v return (total %v in %v s, %v txs/s)", index, meterCount, seconds, float64(meterCount)/seconds)
@@ -332,6 +336,7 @@ var (
 	timeoutTx uint32
 	successTx uint32
 	failedTx  uint32
+	wg sync.WaitGroup
 )
 
 func checkTransaction(ctx context.Context, hash common.Hash, client *ethclient.Client) {

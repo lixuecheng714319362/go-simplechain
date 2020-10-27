@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/simplechain-org/go-simplechain/common"
-	"github.com/simplechain-org/go-simplechain/consensus"
 	"github.com/simplechain-org/go-simplechain/core"
 	"github.com/simplechain-org/go-simplechain/core/types"
 	"github.com/simplechain-org/go-simplechain/log"
@@ -32,11 +31,13 @@ import (
 func (w *worker) applyTransactions(interrupt *int32, noempty bool, tstart time.Time) {
 	env := w.current
 
+	//TODO: sole
 	// commit new byzantium work to pbft engine
-	if _, ok := w.engine.(consensus.Pbft); ok {
-		w.commitByzantium(interrupt, noempty, tstart)
+	//if _, ok := w.engine.(consensus.Pbft); ok {
+		//w.commitByzantium(interrupt, noempty, tstart)
+		w.commitSolo(interrupt, noempty, tstart)
 		return
-	}
+	//}
 
 	// Accumulate the uncles for the current block
 	uncles := make([]*types.Header, 0, 2)

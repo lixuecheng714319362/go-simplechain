@@ -21,7 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/simplechain-org/go-simplechain/consensus/pbft"
+	"github.com/simplechain-org/go-simplechain/consensus/solo"
 	"math/big"
 	"runtime"
 	"sync"
@@ -38,7 +38,6 @@ import (
 	"github.com/simplechain-org/go-simplechain/consensus/ethash"
 	"github.com/simplechain-org/go-simplechain/consensus/istanbul"
 	istanbulBackend "github.com/simplechain-org/go-simplechain/consensus/istanbul/backend"
-	pbftBackend "github.com/simplechain-org/go-simplechain/consensus/pbft/backend"
 	"github.com/simplechain-org/go-simplechain/consensus/raft"
 	"github.com/simplechain-org/go-simplechain/consensus/scrypt"
 	"github.com/simplechain-org/go-simplechain/core"
@@ -316,11 +315,13 @@ func CreateConsensusEngine(ctx *node.ServiceContext, chainConfig *params.ChainCo
 	}
 
 	if chainConfig.Pbft != nil {
-		if chainConfig.Pbft.Epoch != 0 {
-			config.Pbft.Epoch = chainConfig.Pbft.Epoch
-		}
-		config.Pbft.ProposerPolicy = pbft.ProposerPolicy(chainConfig.Pbft.ProposerPolicy)
-		return pbftBackend.New(&config.Pbft, ctx.NodeKey(), db)
+		//if chainConfig.Pbft.Epoch != 0 {
+		//	config.Pbft.Epoch = chainConfig.Pbft.Epoch
+		//}
+		//config.Pbft.ProposerPolicy = pbft.ProposerPolicy(chainConfig.Pbft.ProposerPolicy)
+		//return pbftBackend.New(&config.Pbft, ctx.NodeKey(), db)
+		//TODO: tps solo
+		return solo.New()
 	}
 
 	if chainConfig.Raft {
