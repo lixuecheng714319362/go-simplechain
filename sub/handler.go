@@ -775,7 +775,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			} else if pm.blockchain.HasPendingBlock(block.Hash) {
 				// if we have pending block, add a future task to wait block committing
 				peer, hash, number := p, block.Hash, block.Number
-				time.AfterFunc(time.Millisecond*50, func() {
+				time.AfterFunc(time.Second*3, func() {
 					if !pm.blockchain.HasBlock(hash, number) {
 						log.Warn("pending executed block is not inserted", "hash", hash, "number", number)
 						pm.fetcher.Notify(peer.id, hash, number, time.Now(), peer.RequestBlockSeal, peer.RequestBodies)

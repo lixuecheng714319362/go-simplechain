@@ -1,8 +1,8 @@
 package pbft
 
-const defaultMaxBlockTxs = 1000
+const defaultMaxBlockTxs = 10000
 
-var MaxBlockTxs uint64 = 1000
+var MaxBlockTxs uint64 = defaultMaxBlockTxs
 
 type SealContext struct {
 	MaxBlockTxs    uint64

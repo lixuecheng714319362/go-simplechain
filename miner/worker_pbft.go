@@ -131,6 +131,9 @@ func (w *worker) OnCommit(blockNum uint64, txNum int) {
 	//	log.Error("[debug] pbft context", "before", before, "maxBlockTxs", w.pbftCtx.MaxBlockTxs,
 	//		"maxNoTimeoutTx", w.pbftCtx.MaxNoTimeoutTx, "lastTimeoutTx", w.pbftCtx.LastTimeoutTx)
 	//}(w.pbftCtx.MaxBlockTxs)
+	if txNum == 0 {
+		return
+	}
 
 	if w.pbftCtx.MaxBlockTxs >= pbft.MaxBlockTxs {
 		atomic.StoreUint64(&w.pbftCtx.MaxBlockTxs, pbft.MaxBlockTxs)
