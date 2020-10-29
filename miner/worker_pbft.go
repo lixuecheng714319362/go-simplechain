@@ -124,6 +124,7 @@ func (w *worker) OnTimeout() {
 	}
 	log.Info("decrease maxBlockCanSeal to half for PBFT timeout",
 		"old", w.pbftCtx.MaxBlockTxs*2, "new", w.pbftCtx.MaxBlockTxs, "lastTimeout", w.pbftCtx.LastTimeoutTx)
+
 }
 
 func (w *worker) OnCommit(blockNum uint64, txNum int) {
